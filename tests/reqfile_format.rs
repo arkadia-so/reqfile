@@ -85,8 +85,8 @@ fn an_unsupported_version_fails() {
 #[test]
 fn other_type_keys_fail() {
     assert_config_error(
-        &VALID.replace("product:", "process:"),
-        "Reqfile.yaml:3: unknown key `process` in the Reqfile",
+        &VALID.replace("product:", "policy:"),
+        "Reqfile.yaml:3: unknown key `policy` in the Reqfile",
     );
 }
 
@@ -263,4 +263,76 @@ fn a_near_miss_renamed_before_staging_is_no_longer_an_error() {
     let run = repo.run(&["check"]);
 
     assert_eq!(run.code, 0, "{}", run.output());
+}
+
+#[test]
+fn a_block_with_use_is_a_use_block_and_any_other_block_is_a_definition() {
+    let repo = repo!();
+    repo.write("Reqfile.yaml", VALID);
+    // A use block needs no must, why or checks: it takes them from its definition.
+    repo.write(
+        "app/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: NO_TODO_HERE, use: ../lib }\n",
+    );
+    repo.write(
+        "lib/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - id: NO_TODO_HERE\n    must: No TODO.\n    why: They rot.\n    checks:\n      - command:\n          run: \"true\"\n          fix_hint: x\n",
+    );
+
+    let run = repo.run(&["list"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("From app/Reqfile.yaml:\n  NO_TODO_HERE (code)  use: ../lib  checks: command (inherited)\n"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .contains("From lib/Reqfile.yaml:\n  NO_TODO_HERE (code)  checks: command\n"),
+        "{}",
+        run.stdout
+    );
+    // Without `use`, the same block is a definition missing its fields.
+    assert_config_error(
+        "reqfile: 1\ncode:\n  - { id: NO_TODO_HERE }\n",
+        "Reqfile.yaml:3: requirement NO_TODO_HERE is missing the required field `must`",
+    );
+}
+
+#[test]
+fn a_use_block_with_must_is_an_error() {
+    assert_config_error(
+        "reqfile: 1\ncode:\n  - id: NO_TODO\n    use: ./lib\n    must: No TODO.\n",
+        "Reqfile.yaml:5: requirement NO_TODO is a use block, which takes `must` from its definition",
+    );
+}
+
+#[test]
+fn process_is_a_requirement_type_next_to_product_and_code() {
+    let content = format!(
+        "{VALID}\nprocess:\n  - id: CI_GATE\n    must: CI runs the checks.\n    why: Hooks can be skipped.\n    checks:\n      - command:\n          run: \"true\"\n          fix_hint: x\n"
+    );
+    let run = check(&content);
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(run.stdout.contains("3 checks run"), "{}", run.stdout);
+
+    let repo = repo!();
+    repo.write("Reqfile.yaml", &content);
+    let run = repo.run(&["list", "--kind", "process"]);
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("  CI_GATE (process)  checks: command\n"),
+        "{}",
+        run.stdout
+    );
+    let run = repo.run(&["list"]);
+    assert!(
+        run.stdout
+            .contains("3 requirements: 1 product, 1 code, 1 process.\n"),
+        "{}",
+        run.stdout
+    );
 }

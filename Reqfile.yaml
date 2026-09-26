@@ -1,156 +1,136 @@
 # Requirements for reqfile, checked by reqfile (https://reqfile.dev)
 reqfile: 1
 
-# Each requirement is verified by the integration tests in tests/<id in lowercase>.rs.
+# Product requirements are macro: one durable promise each, at most 10 per
+# Reqfile. Their details are micro: the names of the tests their checks run.
 # Code and testing principles are inherited from the repository root Reqfile.
 
 product:
   - id: REQFILE_FORMAT
-    must: "A requirements file is named exactly Reqfile.yaml, has a `reqfile: 1` version key, and lists requirements under the `product` and `code` type keys. Each requirement has `id` (SCREAMING_SNAKE_CASE), `must`, `why` and `checks`, and optionally `who` and `ref`. Unknown keys, missing fields, other type keys, an unsupported version and near-miss file names (reqfile.yaml, REQFILE.yaml, Reqfile.yml) holding a top-level `reqfile`, `product` or `code` key fail with an error naming the file and line; other files with such names, like a CI workflow named reqfile.yml, are not Reqfiles."
-    why: A requirement that is silently skipped looks exactly like one that passes, and the version key lets the format evolve without misreading old files.
-    who: People writing Reqfiles; future tools reading the format.
+    must: Requirements live in Reqfile.yaml files whose format is versioned and strictly validated, and every error names its file and line.
+    why: A requirement that is silently skipped looks exactly like one that passes, and a versioned format can evolve and be read by other tools.
+    who: Reqfile authors; tools reading the format.
     checks:
       - command:
-          run: cargo test --test reqfile_format
+          run: cargo test --locked --test reqfile_format --test checks_declared
           violation_codes: [101]
-          fix_hint: Make the tests in tests/reqfile_format.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/reqfile_format.rs and tests/checks_declared.rs pass.
 
-  - id: CASCADE
-    must: Reqfiles may live in any folder. The requirements that apply to a file are those of every Reqfile.yaml in its folder and its ancestors up to the repository root, and a requirement's checks only target files under the folder of its Reqfile. Ids are unique across the repository; a duplicate is an error naming both files.
-    why: Shared principles are written once at the root and apply everywhere, while each project declares its own requirements next to its code.
+  - id: SCOPE
+    must: The requirements and settings that apply to a file are those of the nearest block and config along its folder path, and excluded files are never checked.
+    why: Shared rules are written once at the root, each folder can refine them, and vendored or generated code stays out.
     who: Teams with several projects in one repository; agents working in a subfolder.
     checks:
       - command:
-          run: cargo test --test cascade
+          run: cargo test --locked --test cascade --test config_cascade --test exclude
           violation_codes: [101]
-          fix_hint: Make the tests in tests/cascade.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/cascade.rs, tests/config_cascade.rs and tests/exclude.rs pass.
 
-  - id: CONFIG_CASCADE
-    must: "Settings live in .reqfile/config.yaml, in any folder, with or without a Reqfile next to it, and nothing about Reqfile.yaml or .reqfile/ is specific to the repository root. The settings of a folder come, key by key, from the nearest config in that folder or its ancestors (`base`, and each `decision` key: `model`, `api_key_env`, `endpoint`, `concurrency`), while `exclude` globs are relative to the folder of their config and add up down the tree. Each check uses the settings of its Reqfile's folder. Unknown keys and invalid values fail with an error naming the file and line."
-    why: Every project in a repository runs with its own settings next to its code, a subfolder behaves the same once published as its own repository, and a nested folder cannot silently re-include what a parent excluded.
-    who: Teams with several projects in one repository; maintainers publishing a subfolder.
+  - id: IMPORTS
+    must: A requirement can be taken by reference from another folder or repository, pinned to a tag or commit, and is checked exactly as if it were declared where it is used.
+    why: Principles are written once and reused everywhere without copies to maintain, and pinning keeps rules from changing under a repository.
+    who: Teams adopting shared or third-party requirements; authors publishing requirements.
     checks:
       - command:
-          run: cargo test --test config_cascade
+          run: cargo test --locked --test imports
           violation_codes: [101]
-          fix_hint: Make the tests in tests/config_cascade.rs pass.
-
-  - id: EXCLUDE
-    must: Target files are regular files from git (tracked and untracked, never git-ignored, never symlinks, whose content could come from outside the repository), minus .reqfile/ folders and the paths matched by the `exclude` globs of any .reqfile/config.yaml above them; excluded paths are never searched for Reqfiles or configs either.
-    why: Vendored code, generated files and test fixtures (including the deliberately invalid Reqfiles in reqfile's own tests) are not code the requirements apply to.
-    who: Adopters with vendored or generated code; reqfile's own test suite.
-    checks:
-      - command:
-          run: cargo test --test exclude
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/exclude.rs pass.
-
-  - id: CHECKS_DECLARED
-    must: Every requirement declares at least one check, and every check is a `command` or a `decision`.
-    why: A requirement nothing checks is a wish.
-    who: Reqfile authors; reviewers.
-    checks:
-      - command:
-          run: cargo test --test checks_declared
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/checks_declared.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/imports.rs pass.
 
   - id: COMMAND_CHECK
-    must: A command check runs its shell command from the folder of its Reqfile. With `files`, a glob relative to that folder, it runs only if a target file matches, and receives the matching files as arguments when `pass_files` is true. Exit 0 passes; an exit code listed in `violation_codes` (default 1) means violations, read from the SARIF output when `format` is sarif, otherwise one violation carrying the end of the output; any other exit code, a signal, a launch failure or a timeout (default 60 seconds) is a tool error.
-    why: Existing tools (ruff, ast-grep, clippy, knip, cargo test) enforce a requirement on day one without adapters, and explicit exit codes keep a crash from reading as a pass.
+    must: Existing tools enforce a requirement through a command whose exit code and SARIF output map to a pass, violations or a tool error, never to a silent pass.
+    why: Mature linters are reused as they are, and a crash or an ignored result must never look like success.
     who: Reqfile authors.
     checks:
       - command:
-          run: cargo test --test command_check
+          run: cargo test --locked --test command_check
           violation_codes: [101]
-          fix_hint: Make the tests in tests/command_check.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/command_check.rs pass.
 
   - id: DECISION_CHECK
-    must: "A decision check reads .reqfile/<ID>/decision.yaml next to its Reqfile, selects code units with its ast-grep rules, and asks Jev its yes/no question about each unit, using the latest Jev unless a config sets a model. Each unit is sent once, in one request carrying the questions of every decision check that selects it. Answers are cached in a local file in the git folder, never in tracked files, and reused while the unit, the question and the exact model Jev answers with are unchanged; a full run drops answers no unit uses any more, and failed answers are never cached. A probability of violation above `violation_above` is a violation, below `pass_below` a pass, and anything in between an uncertain finding, always advisory. Violations are advisory unless the check sets `mode: blocking`. The unit gives the location and decision.yaml the fix hint."
-    why: Principles no linter can check (decomplect, contracts, test behavior) still get a fast, cheap signal, shared by everyone who clones the repository, with probabilities that say how sure the model is; they inform before they block until their thresholds are measured on the codebase.
+    must: Code no linter can judge is checked by asking Jev a yes/no question about each unit a decision check selects.
+    why: Principles like decomplect or contracts still get a fast, cheap signal, with a probability that says how sure the model is.
     who: Agents fixing code; reviewers.
     checks:
       - command:
-          run: cargo test --test decision_check
+          run: cargo test --locked --test decision_check
           violation_codes: [101]
-          fix_hint: Make the tests in tests/decision_check.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/decision_check.rs pass.
 
   - id: SELECTION
-    must: "`reqfile check --changed [base]` restricts file-based checks (commands with `files`, decision units) to files changed since the merge-base of base and HEAD, including uncommitted, untracked and deleted files, with base defaulting to the `base` of the config that applies to each check's folder, then to the remote's default branch (origin/HEAD); commands without `files` still run. A requirement whose definition changed since the base (its Reqfile, its .reqfile/<ID>/ files, or a config applying to its folder) is checked on its whole scope, since unchanged files may now fail it. `--only ID,...` runs only the listed requirements."
-    why: Agents need an answer in seconds on what they touched, the merge-base stays correct after they commit, and authors iterate on one requirement at a time.
-    who: Agents; developers before pushing; Reqfile authors.
+    must: "`--changed` and `--fast` check everything a change can affect, so hooks stay fast without missing a redefined requirement."
+    why: Agents need answers in seconds, and a rule that changed must be applied to unchanged code too.
+    who: Agents via hooks; developers before pushing.
     checks:
       - command:
-          run: cargo test --test selection
+          run: cargo test --locked --test selection --test fast_path
           violation_codes: [101]
-          fix_hint: Make the tests in tests/selection.rs pass.
-
-  - id: FAST_PATH
-    must: "`reqfile check --fast` runs only decision checks and the command checks declared `fast: true`, for edit hooks; `reqfile check` without it runs every check. The summary counts the checks a fast run left for a full run."
-    why: Agents need feedback within seconds after an edit, a run time limit does not tell which checks are cheap enough for that, and a CI running plain `reqfile check` must never skip checks silently.
-    who: Agents in an edit or stop hook; CI.
-    checks:
-      - command:
-          run: cargo test --test fast_path
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/fast_path.rs pass.
-
-  - id: RUN_LOG
-    must: "`reqfile check --log FILE` appends one JSON line per judged code unit, clean ones included, per command check and per command finding. Each line carries the run id, time, git HEAD, reqfile version, the tags given with `--log-tag KEY=VALUE`, the requirement and location, and for decision units the unit's source and fingerprint, the question's fingerprint, the probability, verdict, exact model and whether the answer came from the cache. The log never changes findings or exit codes, and a log that cannot be written is an error."
-    why: Improving checks needs evidence of what they judged, including what they let pass, so real cases can be harvested, labeled blind, replayed and measured; without clean units, missed violations are invisible.
-    who: Maintainers of requirements and of the private evaluation suite; agent hooks recording sessions.
-    checks:
-      - command:
-          run: cargo test --test run_log
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/run_log.rs pass.
-
-  - id: EXPLAIN
-    must: "`reqfile explain <path>` lists the requirements that apply to a path, each with the Reqfile it comes from."
-    why: With shared and local Reqfiles, agents need the rules for the folder they are editing, not a set of raw files to combine.
-    who: Agents before editing; Reqfile authors.
-    checks:
-      - command:
-          run: cargo test --test explain
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/explain.rs pass.
-
-  - id: LIST
-    must: "`reqfile list` lists every requirement of the repository, grouped by Reqfile, each with its type (product or code) and the types of its checks (command, decision, decision (blocking)), then counts them by type. `--kind product|code` lists only one type."
-    why: Authors and agents need an overview of what the repository requires, beyond the folder they are in, and which requirements rely on judgment rather than tools.
-    who: Reqfile authors; agents discovering a repository; reviewers.
-    checks:
-      - command:
-          run: cargo test --test list
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/list.rs pass.
-
-  - id: EXAMPLES
-    must: "`reqfile test` runs each requirement's checks on its labeled examples, the subfolders of .reqfile/<ID>/examples/ named violation-… or ok-…, each alone in a fresh repository with the requirement's Reqfile, .reqfile/<ID>/ files and Jev settings. A requirement with only command checks must match every label (exit 1 otherwise); one with a decision check is measured instead, counting violations caught, missed, not selected by any check and uncertain, and correct examples flagged. A case that cannot run is an error (exit 3)."
-    why: Checks approximate requirements, so each detector needs cases showing what it catches, what it misses and which exceptions it respects; model judgments vary, so they are measured against labels rather than asserted, and selector misses are counted apart so judging only selected code cannot hide gaps.
-    who: Reqfile authors; anyone deciding whether a check earns its place or can become blocking.
-    checks:
-      - command:
-          run: cargo test --test examples
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/examples.rs pass.
-
-  - id: OUTPUT
-    must: Every violation and advisory finding includes the requirement id, a message and the fix hint, plus file and line whenever the check provides them (SARIF results and decision units always do). Decision findings name the exact model that judged them in JSON. Output is a concise human summary by default and JSON with `--format json`.
-    why: Agents fix violations directly from this output; without a location and a hint, they re-interpret the requirement and guess.
-    who: Agents in the fix loop; developers.
-    checks:
-      - command:
-          run: cargo test --test output
-          violation_codes: [101]
-          fix_hint: Make the tests in tests/output.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/selection.rs and tests/fast_path.rs pass.
 
   - id: NO_FALSE_GREEN
-    must: Exit code is 0 only when every selected check ran to completion without a blocking finding, 1 when there are blocking findings, and 3 on any config or tool error (missing tool, crash, timeout, unparseable output, failed Jev call, a unit too large to judge), which takes precedence. Exit 0 says the checks passed, not that the requirements hold. The summary ends with the number of checks run, checks with nothing to check (no matching file, or no code unit), code units judged by decision checks, violations, advisory findings and errors, so a run that evaluated nothing is visible.
-    why: CI and hooks read exit codes only, a check that did not run is not a check that passed, and detectors approximate requirements rather than prove them.
-    who: CI; agent hooks; anyone trusting a green result.
+    must: Exit 0 means every blocking check ran and passed, and a check that could not run is never reported as passing.
+    why: CI and hooks read exit codes only, while an advisory check that cannot run must not block work it could never have blocked.
+    who: CI; agent hooks; external contributors whose pull requests have no secrets.
     checks:
       - command:
-          run: cargo test --test no_false_green
+          run: cargo test --locked --test no_false_green
           violation_codes: [101]
-          fix_hint: Make the tests in tests/no_false_green.rs pass.
+          timeout: 900
+          fix_hint: Make the failing tests in tests/no_false_green.rs pass.
+
+  - id: OUTPUT
+    must: Every finding is actionable, with its requirement, location and fix hint, and every run can be recorded for evaluation without changing its result.
+    why: Agents fix violations directly from the output, and improving checks needs evidence of what they judged.
+    who: Agents in the fix loop; maintainers of requirements.
+    checks:
+      - command:
+          run: cargo test --locked --test output --test run_log
+          violation_codes: [101]
+          timeout: 900
+          fix_hint: Make the failing tests in tests/output.rs and tests/run_log.rs pass.
+
+  - id: INSPECTION
+    must: Anyone can see which requirements apply to a path, where each one and its checks come from, and what the repository requires overall.
+    why: With shared, local and imported requirements, nobody can reason about rules they cannot see resolved.
+    who: Agents before editing; Reqfile authors; reviewers.
+    checks:
+      - command:
+          run: cargo test --locked --test explain --test list
+          violation_codes: [101]
+          timeout: 900
+          fix_hint: Make the failing tests in tests/explain.rs and tests/list.rs pass.
+
+  - id: EVIDENCE
+    must: "`reqfile test` reports whether each requirement's labeled examples assert, measure or say nothing about its checks, and never presents a measurement as a verification."
+    why: Exit 0 from `reqfile test` does not mean a decision check works, and nobody should conclude it does.
+    who: Reqfile authors; anyone adopting a requirement.
+    checks:
+      - command:
+          run: cargo test --locked --test examples
+          violation_codes: [101]
+          timeout: 900
+          fix_hint: Make the failing tests in tests/examples.rs pass.
+
+process:
+  - id: CI_GATE
+    must: Every pull request and every release runs the tests, `reqfile check` and `reqfile test` on the exact revision.
+    why: Hooks are feedback an agent can exhaust, and a public repository needs an acceptance gate that contributors cannot bypass.
+    who: Maintainers; contributors; users trusting a release.
+    checks:
+      - command:
+          run: $REQFILE_ASSETS/check.sh
+          fix_hint: Restore the step of .github/check.sh or of the workflows that the check reports as missing.
+
+  - id: REQUIREMENT_BUDGET
+    must: A Reqfile holds at most 10 product requirements.
+    why: A requirement is one durable promise whose details are the names of its tests; past 10, promises blur into specifications nobody reads.
+    who: Reqfile authors; agents adding requirements.
+    checks:
+      - command:
+          run: $REQFILE_ASSETS/check.sh
+          fix_hint: Merge requirements into broader promises whose details become test names, or split the folder into subfolders with their own Reqfiles.

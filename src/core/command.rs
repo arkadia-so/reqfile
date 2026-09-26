@@ -51,10 +51,7 @@ pub fn judge(
             return Err(format!("`{}` could not be launched: {e}", check.run));
         }
     };
-    if code == 0 {
-        return Ok(Vec::new());
-    }
-    if !check.violation_codes.contains(&code) {
+    if code != 0 && !check.violation_codes.contains(&code) {
         return Err(format!(
             "`{}` failed with exit code {code}\n{}",
             check.run,
@@ -62,21 +59,23 @@ pub fn judge(
         ));
     }
     match check.format {
+        OutputFormat::Exit if code == 0 => Ok(Vec::new()),
         OutputFormat::Exit => Ok(vec![CommandViolation {
             message: tail(&stdout),
             file: None,
             line: None,
         }]),
         OutputFormat::Sarif => {
-            let results = sarif::parse(&stdout, cwd, repo_root)
+            let parsed = sarif::parse(&stdout, cwd, repo_root)
                 .map_err(|e| format!("`{}`: {e}", check.run))?;
-            if results.is_empty() {
+            if code != 0 && !parsed.had_results {
                 return Err(format!(
                     "`{}` exited with violation code {code} but its SARIF output lists no results",
                     check.run
                 ));
             }
-            Ok(results
+            Ok(parsed
+                .violations
                 .into_iter()
                 .map(|r| CommandViolation {
                     message: r.message,

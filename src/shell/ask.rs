@@ -215,9 +215,9 @@ fn record(
         .filter(|(result, _)| result.is_none());
     match response {
         Ok((answered_by, probabilities)) => {
-            for ((slot, (_, question)), p) in slots.zip(probabilities) {
+            for ((slot, (id, question)), p) in slots.zip(probabilities) {
                 // Keyed by the model that answered, in case `latest` moved during the run.
-                let key = decision::cache_key(&answered_by, &asked.questions.state, question);
+                let key = decision::cache_key(&answered_by, &asked.questions.state, id, question);
                 caches.insert(key, p);
                 *slot = Some(Ok(Judged {
                     probability: p,

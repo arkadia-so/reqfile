@@ -87,18 +87,30 @@ pub fn outcome(label: Label, id: &str, report: &Report) -> Outcome {
     }
 }
 
+/// What a requirement's labeled examples say about its checks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Evidence {
+    /// Command checks only: every label must match.
+    Asserted,
+    /// A decision check: model judgments vary, so they are measured against
+    /// the labels, and never verified by them.
+    Measured,
+    /// No labeled examples: nothing is known about the checks.
+    None,
+}
+
 /// The examples of one requirement.
 pub struct Tested {
-    pub id: String,
-    /// With a decision check, model judgments are measured rather than asserted.
-    pub measured: bool,
+    /// The requirement id, with its Reqfile when several blocks share it.
+    pub label: String,
+    pub evidence: Evidence,
     pub cases: Vec<(String, Label, Outcome)>,
 }
 
 impl Tested {
     /// Whether an asserted requirement disagreed with one of its labels.
     pub fn failed(&self) -> bool {
-        !self.measured && self.cases.iter().any(|(_, _, o)| !o.as_labeled())
+        self.evidence == Evidence::Asserted && self.cases.iter().any(|(_, _, o)| !o.as_labeled())
     }
 
     pub fn has_errors(&self) -> bool {
@@ -115,11 +127,11 @@ impl Tested {
                 .count()
         };
         let total = |label: Label| self.cases.iter().filter(|(_, l, _)| *l == label).count();
-        let mut out = if self.measured {
-            format!(
-                "{}  {} examples, measured: {} of {} violations caught ({} missed, {} not selected, {} uncertain); {} of {} correct examples flagged ({} uncertain)\n",
-                self.id,
-                self.cases.len(),
+        let mut out = match self.evidence {
+            Evidence::None => format!("{}  no evidence: no labeled examples\n", self.label),
+            Evidence::Measured => format!(
+                "{}  measured, no assertion: {} of {} violations caught ({} missed, {} not selected, {} uncertain); {} of {} correct examples flagged ({} uncertain)\n",
+                self.label,
                 count(Label::Violation, &Outcome::Caught),
                 total(Label::Violation),
                 count(Label::Violation, &Outcome::Missed),
@@ -128,15 +140,16 @@ impl Tested {
                 count(Label::Ok, &Outcome::FalseAlarm),
                 total(Label::Ok),
                 count(Label::Ok, &Outcome::Uncertain),
-            )
-        } else {
-            let as_labeled = self.cases.iter().filter(|(_, _, o)| o.as_labeled()).count();
-            format!(
-                "{}  {} examples, {} as labeled\n",
-                self.id,
-                self.cases.len(),
-                as_labeled
-            )
+            ),
+            Evidence::Asserted => {
+                let as_labeled = self.cases.iter().filter(|(_, _, o)| o.as_labeled()).count();
+                format!(
+                    "{}  asserted: {} examples, {} as labeled\n",
+                    self.label,
+                    self.cases.len(),
+                    as_labeled
+                )
+            }
         };
         for (case, _, outcome) in self.cases.iter().filter(|(_, _, o)| !o.as_labeled()) {
             out += &format!("  {case}: {}\n", outcome.describe());
@@ -147,16 +160,22 @@ impl Tested {
 
 /// The report of `reqfile test`, and its exit code: 3 if a case could not
 /// run, 1 if an asserted requirement disagreed with a label, 0 otherwise.
+/// Measured and absent evidence never fail: exit 0 does not mean a decision
+/// check works.
 pub fn render(tested: &[Tested]) -> (String, i32) {
     let mut out: String = tested.iter().map(Tested::render).collect();
     let examples: usize = tested.iter().map(|t| t.cases.len()).sum();
     let failed = tested.iter().filter(|t| t.failed()).count();
+    let with = |evidence: Evidence| tested.iter().filter(|t| t.evidence == evidence).count();
     if !out.is_empty() {
         out.push('\n');
     }
     out += &format!(
-        "{} requirements with examples, {examples} examples. {failed} failing their labels.\n",
-        tested.len()
+        "{} requirements: {} asserted, {} measured, {} without evidence; {examples} examples. {failed} failing their labels.\n",
+        tested.len(),
+        with(Evidence::Asserted),
+        with(Evidence::Measured),
+        with(Evidence::None),
     );
     let code = if tested.iter().any(Tested::has_errors) {
         3

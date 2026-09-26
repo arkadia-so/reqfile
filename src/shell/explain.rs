@@ -1,10 +1,11 @@
-//! `reqfile explain <path>`: the requirements that apply to a path.
+//! `reqfile explain <path>`: the requirements that apply to a path, and
+//! where each one and its checks come from.
 
 use std::path::Path;
 
 use super::workspace::Workspace;
 use crate::core::paths;
-use crate::core::plan;
+use crate::core::resolve;
 
 /// The explanation to print, or the errors that prevent it.
 pub fn run(cwd: &Path, path: &Path) -> Result<String, Vec<String>> {
@@ -20,7 +21,7 @@ pub fn run(cwd: &Path, path: &Path) -> Result<String, Vec<String>> {
     } else {
         paths::parent(&target)
     };
-    let applicable = plan::applicable(&workspace.reqfiles, dir);
+    let applicable = resolve::applicable(&workspace.blocks, dir);
     if applicable.is_empty() {
         return Ok(format!(
             "No requirements apply to {}.\n",
@@ -32,18 +33,26 @@ pub fn run(cwd: &Path, path: &Path) -> Result<String, Vec<String>> {
         paths::display_dir(&target)
     );
     let mut current = "";
-    for (reqfile, requirement) in applicable {
-        if reqfile.path != current {
-            current = &reqfile.path;
+    for block in applicable {
+        if block.reqfile != current {
+            current = &block.reqfile;
             out += &format!("\nFrom {current}:\n");
         }
         out += &format!(
             "  {} ({})\n    must: {}\n    why: {}\n",
-            requirement.id,
-            requirement.kind.as_str(),
-            requirement.must,
-            requirement.why
+            block.id,
+            block.kind.as_str(),
+            block.must,
+            block.why
         );
+        if let Some(imported) = &block.imported {
+            out += &format!("    use: {}\n", imported.describe());
+            out += if imported.checks_inherited {
+                "    checks: inherited from the definition\n"
+            } else {
+                "    checks: set in this block\n"
+            };
+        }
     }
     Ok(out)
 }

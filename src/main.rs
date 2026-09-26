@@ -43,13 +43,23 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Summary)]
         format: Format,
     },
-    /// List the requirements that apply to a path.
+    /// List the requirements that apply to a path, and where each comes from.
     Explain { path: PathBuf },
-    /// List every requirement of the repository, with its type and checks.
+    /// List every requirement of the repository, with its type, checks and source.
     List {
         /// Only list requirements of this type.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
+        #[arg(long, value_enum, default_value_t = Format::Summary)]
+        format: Format,
+    },
+    /// Show the use blocks taking requirements from a folder (./std) or a
+    /// repository pinned to a tag or commit (owner/repo@v1.0.0), and what
+    /// their checks run. Runs nothing and writes nothing.
+    Add {
+        location: String,
+        /// Only these requirements (default: every code and process requirement there).
+        ids: Vec<String>,
     },
     /// Run each requirement's checks on its labeled examples,
     /// `.reqfile/<ID>/examples/violation-…/` and `ok-…/`.
@@ -64,6 +74,7 @@ enum Command {
 enum KindArg {
     Product,
     Code,
+    Process,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -133,12 +144,25 @@ fn main() -> ExitCode {
                 ExitCode::from(EXIT_ERROR as u8)
             }
         },
-        Command::List { kind } => {
+        Command::Add { location, ids } => match shell::add::run(&cwd, &location, &ids) {
+            Ok(text) => match emit(&text) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(()) => ExitCode::from(EXIT_ERROR as u8),
+            },
+            Err(errors) => {
+                for error in errors {
+                    eprintln!("error: {error}");
+                }
+                ExitCode::from(EXIT_ERROR as u8)
+            }
+        },
+        Command::List { kind, format } => {
             let kind = kind.map(|k| match k {
                 KindArg::Product => Kind::Product,
                 KindArg::Code => Kind::Code,
+                KindArg::Process => Kind::Process,
             });
-            match shell::list::run(&cwd, kind) {
+            match shell::list::run(&cwd, kind, matches!(format, Format::Json)) {
                 Ok(text) => match emit(&text) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(()) => ExitCode::from(EXIT_ERROR as u8),

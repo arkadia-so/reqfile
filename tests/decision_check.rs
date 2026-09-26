@@ -17,6 +17,11 @@ def unsure():
     pass
 "#;
 
+/// A config pinning the model, as blocking decision checks require.
+fn pinned(jev: &FakeJev) -> String {
+    format!("{}  model: typesafe/jev-1.13-20260917\n", jev.config())
+}
+
 fn decision_repo(jev: &FakeJev, spec: &str) -> Repo {
     let repo = repo!();
     repo.write("Reqfile.yaml", &reqfile(&[("DECOMPLECT", "- decision")]));
@@ -286,7 +291,12 @@ fn a_failed_jev_call_is_an_error() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout.contains("error  DECOMPLECT  2 of 2 units could not be judged, first at a.py:1: Jev returned HTTP 500: {\"error\": \"boom\"}"),
         "{}",
@@ -335,7 +345,12 @@ fn an_unparseable_jev_answer_is_an_error() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout
             .contains("Jev response has no probability for DECOMPLECT"),
@@ -355,7 +370,12 @@ fn a_missing_api_key_is_an_error() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout.contains("OPENROUTER_API_KEY is not set"),
         "{}",
@@ -445,6 +465,7 @@ fn blocking_decisions_fail_the_run() {
         "Reqfile.yaml",
         &reqfile(&[("DECOMPLECT", "- decision: { mode: blocking }")]),
     );
+    repo.write(".reqfile/config.yaml", &pinned(&jev));
     repo.write("a.py", "def f():\n    pass  # VIOLATION\n");
 
     let run = repo.run(&["check"]);
@@ -477,6 +498,7 @@ fn uncertain_findings_stay_advisory_in_blocking_mode() {
         "Reqfile.yaml",
         &reqfile(&[("DECOMPLECT", "- decision: { mode: blocking }")]),
     );
+    repo.write(".reqfile/config.yaml", &pinned(&jev));
     repo.write("a.py", "def f():\n    pass\n");
 
     let run = repo.run(&["check"]);
@@ -610,7 +632,12 @@ fn a_failed_batched_call_is_an_error_for_every_check_in_it() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout
             .contains("error  DECOMPLECT  1 of 1 units could not be judged"),
@@ -639,7 +666,12 @@ fn a_missing_answer_for_one_question_is_an_error_for_that_check() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout
             .contains("Jev response has no probability for DEEP_MODULES"),
@@ -757,7 +789,12 @@ fn failed_answers_are_not_cached() {
     let repo = decision_repo(&jev, PYTHON_FUNCTIONS);
     repo.write("a.py", "def f():\n    pass\n");
 
-    assert_eq!(repo.run(&["check"]).code, 3);
+    let first = repo.run(&["check"]);
+    assert!(
+        first.stdout.contains("advisory error  DECOMPLECT"),
+        "{}",
+        first.stdout
+    );
     let second = repo.run(&["check"]);
 
     assert_eq!(second.code, 0, "{}", second.output());
@@ -829,7 +866,12 @@ fn a_corrupt_cache_is_an_error() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout.contains("reqfile/jev-cache: invalid line 1"),
         "{}",
@@ -856,11 +898,177 @@ fn a_unit_too_large_for_jev_is_an_error_not_a_pass() {
 
     let run = repo.run(&["check"]);
 
-    assert_eq!(run.code, 3, "{}", run.output());
+    assert_eq!(
+        run.code,
+        0,
+        "an advisory check that cannot run never blocks: {}",
+        run.output()
+    );
     assert!(
         run.stdout.contains("error  DECOMPLECT  1 of 1 units could not be judged, first at a.py:1: the unit is too large for Jev to judge"),
         "{}",
         run.stdout
     );
     assert!(jev.questions_received().is_empty());
+}
+
+#[test]
+fn a_blocking_decision_check_requires_a_pinned_model() {
+    let jev = FakeJev::by_marker();
+    let repo = decision_repo(&jev, PYTHON_FUNCTIONS);
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[("DECOMPLECT", "- decision: { mode: blocking }")]),
+    );
+    repo.write("a.py", "def f():\n    pass  # VIOLATION\n");
+
+    let unpinned = repo.run(&["check"]);
+
+    assert_eq!(unpinned.code, 3, "{}", unpinned.output());
+    assert!(
+        unpinned.stdout.contains(
+            "Reqfile.yaml:8: the decision check of DECOMPLECT is blocking, so its model must be pinned, but the repository root follows `~typesafe/jev-latest`"
+        ),
+        "{}",
+        unpinned.stdout
+    );
+    assert!(jev.received().is_empty(), "nothing is asked");
+
+    repo.write(".reqfile/config.yaml", &pinned(&jev));
+    let pinned = repo.run(&["check"]);
+
+    assert_eq!(pinned.code, 1, "{}", pinned.output());
+}
+
+#[test]
+fn a_unit_is_asked_at_most_once_per_requirement_id() {
+    let jev = FakeJev::by_marker();
+    // Two unit rules selecting the same function.
+    let spec = PYTHON_FUNCTIONS.replace(
+        "units:\n",
+        "units:\n  - { language: python, rule: { pattern: 'def $F(): $$$BODY' } }\n",
+    );
+    let repo = decision_repo(&jev, &spec);
+    repo.write("a.py", "def f():\n    pass\n");
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    let received = jev.questions_received();
+    assert_eq!(received.len(), 1, "{received:?}");
+    assert_eq!(
+        received[0].body["questions"]
+            .as_object()
+            .expect("questions")
+            .len(),
+        1
+    );
+    assert!(run.stdout.contains("1 code unit judged"), "{}", run.stdout);
+}
+
+#[test]
+fn two_requirements_with_the_same_question_get_separate_answers() {
+    let jev = FakeJev::start(|_| Reply::ByQuestion(vec![("FIRST", 0.95), ("SECOND", 0.05)]));
+    let repo = decision_repo(&jev, PYTHON_FUNCTIONS);
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[("FIRST", "- decision"), ("SECOND", "- decision")]),
+    );
+    repo.write(".reqfile/FIRST/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write(".reqfile/SECOND/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write("a.py", "def f():\n    pass\n");
+
+    let first = repo.run(&["check"]);
+    let cached = repo.run(&["check"]);
+
+    for run in [&first, &cached] {
+        assert!(
+            run.stdout.contains("advisory  FIRST  a.py:1  p=0.95"),
+            "{}",
+            run.stdout
+        );
+        assert!(!run.stdout.contains("SECOND  a.py"), "{}", run.stdout);
+    }
+    let received = jev.questions_received();
+    assert_eq!(
+        received.len(),
+        1,
+        "both questions in one request, then cached"
+    );
+    assert_eq!(
+        received[0].body["questions"]
+            .as_object()
+            .expect("questions")
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn a_unit_rule_selects_only_files_of_its_own_language() {
+    let jev = FakeJev::by_marker();
+    let spec = PYTHON_FUNCTIONS.replace(
+        "  - { language: python, rule: { kind: function_definition } }",
+        "  - { language: typescript, rule: { kind: function_declaration } }",
+    );
+    let repo = decision_repo(&jev, &spec);
+    repo.write("a.ts", "function f() {}\n");
+    repo.write("b.tsx", "function g() { return <div />; }\n");
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    let paths: Vec<String> = jev
+        .questions_received()
+        .iter()
+        .map(|r| {
+            r.body["state"]["path"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        paths,
+        ["a.ts"],
+        "a typescript rule never selects .tsx files"
+    );
+}
+
+#[test]
+fn pruning_the_shared_cache_changes_cost_but_never_results() {
+    let jev = FakeJev::by_marker();
+    let repo = decision_repo(&jev, PYTHON_FUNCTIONS);
+    repo.write("a.py", "def f():\n    pass  # VIOLATION\n")
+        .commit("code");
+    let other = repo.path().join("..").join(format!(
+        "{}-other",
+        repo.path().file_name().unwrap().to_string_lossy()
+    ));
+    repo.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "other",
+        &other.to_string_lossy(),
+    ]);
+    std::fs::write(other.join("a.py"), "def g():\n    pass\n").expect("write");
+
+    let before = repo.run(&["check"]);
+    // A full run in the other worktree keeps only the answers it used.
+    repo.run_in(
+        &format!("../{}", other.file_name().unwrap().to_string_lossy()),
+        &["check"],
+    );
+    let asked = jev.questions_received().len();
+    let after = repo.run(&["check"]);
+
+    assert_eq!(after.stdout, before.stdout);
+    assert_eq!(
+        jev.questions_received().len(),
+        asked + 1,
+        "the pruned answer is asked again"
+    );
+    std::fs::remove_dir_all(&other).expect("remove the other worktree");
 }

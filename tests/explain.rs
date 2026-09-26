@@ -1,4 +1,5 @@
-//! EXPLAIN: `reqfile explain <path>` lists the requirements that apply, with their Reqfile.
+//! INSPECTION: `reqfile explain <path>` lists the requirements that apply, with
+//! where each one and its checks come from.
 
 use reqfile_test_support::{Repo, repo};
 
@@ -151,5 +152,71 @@ fn invalid_reqfiles_are_config_errors() {
             .contains("services/web/Reqfile.yaml:1: unsupported Reqfile version 2"),
         "{}",
         run.stderr
+    );
+}
+
+/// A repository whose root defines FAIL_FAST, and whose `services/api`
+/// takes it from `std/` twice over: with its own `why`, and in
+/// `services/api/v2` with its own checks.
+fn use_repo() -> Repo {
+    let repo = repo!();
+    repo.write(
+        "std/Reqfile.yaml",
+        &format!(
+            "reqfile: 1\ncode:\n{}",
+            requirement("FAIL_FAST", "No swallowed errors.")
+        ),
+    );
+    repo.write(
+        "services/api/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - id: FAIL_FAST\n    use: ../../std\n    why: The API must report every failure.\n",
+    );
+    repo.write(
+        "services/api/v2/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - id: FAIL_FAST\n    use: ../../../std\n    checks:\n      - command:\n          run: \"true\"\n          fix_hint: x\n",
+    );
+    repo.write("services/api/v2/handler.py", "");
+    repo
+}
+
+#[test]
+fn explain_shows_the_effective_block_and_its_resolved_definition_for_a_path() {
+    let repo = use_repo();
+
+    let run = repo.run(&["explain", "services/api/handler.py"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        run.stdout,
+        "Requirements that apply to services/api/handler.py:\n\
+         \nFrom services/api/Reqfile.yaml:\n  FAIL_FAST (code)\n    must: No swallowed errors.\n    why: The API must report every failure.\n    use: ../../std (std/Reqfile.yaml:3)\n    checks: inherited from the definition\n"
+    );
+}
+
+#[test]
+fn explain_shows_whether_checks_are_inherited_or_local() {
+    let repo = use_repo();
+
+    let inherited = repo.run(&["explain", "services/api"]);
+    let local = repo.run(&["explain", "services/api/v2/handler.py"]);
+
+    assert!(
+        inherited
+            .stdout
+            .contains("    checks: inherited from the definition\n"),
+        "{}",
+        inherited.stdout
+    );
+    assert!(
+        local.stdout.contains(
+            "From services/api/v2/Reqfile.yaml:\n  FAIL_FAST (code)\n    must: No swallowed errors.\n    why: Because of FAIL_FAST.\n    use: ../../../std (std/Reqfile.yaml:3)\n    checks: set in this block\n"
+        ),
+        "{}",
+        local.stdout
+    );
+    assert!(
+        !local.stdout.contains("From services/api/Reqfile.yaml"),
+        "the nearest block applies: {}",
+        local.stdout
     );
 }

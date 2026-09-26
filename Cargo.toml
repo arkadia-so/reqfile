@@ -1,6 +1,6 @@
 [package]
 name = "reqfile"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Check that a codebase meets its requirements"
@@ -9,7 +9,7 @@ repository = "https://github.com/arkadia-so/reqfile"
 homepage = "https://reqfile.dev"
 keywords = ["requirements", "lint", "ci", "agents"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["tests/", ".github/", "dist-workspace.toml", "EXPORT.toml"]
+exclude = ["tests/", ".github/", "site/", "dist-workspace.toml", "EXPORT.toml"]
 
 [workspace]
 members = [".", "tests/support"]

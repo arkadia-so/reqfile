@@ -1,5 +1,6 @@
 //! The imperative shell: git, processes, files and HTTP.
 
+pub mod add;
 mod ask;
 pub mod check;
 pub mod examples;
@@ -10,4 +11,5 @@ mod jev_cache;
 pub mod list;
 mod pool;
 mod process;
+mod sources;
 mod workspace;

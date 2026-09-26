@@ -1,12 +1,16 @@
 //! The repository as git sees it.
 
+use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+pub(super) fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(root)
+        // Never wait for credentials: a source that needs them is unreachable.
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .map_err(|e| format!("could not run git: {e}"))?;
     if !output.status.success() {
@@ -50,15 +54,19 @@ pub fn files(root: &Path) -> Result<Vec<String>, String> {
     .map(paths)
 }
 
-/// Paths changed since the merge-base of `base` and HEAD: committed,
-/// staged, unstaged, untracked and deleted.
-pub fn changed(root: &Path, base: &str) -> Result<Vec<String>, String> {
+/// The merge-base of `base` and HEAD.
+pub fn merge_base(root: &Path, base: &str) -> Result<String, String> {
     let merge_base = git(root, &["merge-base", base, "HEAD"])
         .map_err(|e| format!("cannot find the merge-base of {base} and HEAD: {e}"))?;
-    let merge_base = String::from_utf8_lossy(&merge_base).trim().to_string();
+    Ok(String::from_utf8_lossy(&merge_base).trim().to_string())
+}
+
+/// Paths changed since commit `merge_base`: committed, staged, unstaged,
+/// untracked and deleted.
+pub fn changed(root: &Path, merge_base: &str) -> Result<Vec<String>, String> {
     let mut changed = paths(git(
         root,
-        &["diff", "-z", "--name-only", "--no-renames", &merge_base],
+        &["diff", "-z", "--name-only", "--no-renames", merge_base],
     )?);
     changed.extend(paths(git(
         root,
@@ -104,4 +112,83 @@ pub fn head(root: &Path) -> Option<String> {
     // A repository without commits has no HEAD; that is not an error.
     let output = git(root, &["rev-parse", "--verify", "--quiet", "HEAD"]).ok()?;
     Some(String::from_utf8_lossy(&output).trim().to_string())
+}
+
+/// The regular files of a commit, never symlinks or submodules.
+pub fn commit_files(root: &Path, commit: &str) -> Result<Vec<String>, String> {
+    let output = git(root, &["ls-tree", "-r", "-z", "--full-tree", commit])?;
+    Ok(output
+        .split(|b| *b == 0)
+        .filter_map(|entry| {
+            let entry = String::from_utf8_lossy(entry);
+            let (meta, path) = entry.split_once('\t')?;
+            let mode = meta.split(' ').next()?;
+            matches!(mode, "100644" | "100755").then(|| path.to_string())
+        })
+        .collect())
+}
+
+/// The content of `paths` at `commit`, read in one git process.
+pub fn read_at(
+    root: &Path,
+    commit: &str,
+    paths: &[&str],
+) -> Result<HashMap<String, Vec<u8>>, String> {
+    if paths.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut child = Command::new("git")
+        .args(["cat-file", "--batch"])
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    let input: String = paths.iter().map(|p| format!("{commit}:{p}\n")).collect();
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    writer
+        .join()
+        .expect("the writer does not panic")
+        .map_err(|e| format!("could not write to git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git cat-file failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    parse_batch(&output.stdout, paths)
+}
+
+/// The contents in `git cat-file --batch` output, one entry per path asked,
+/// in order; missing paths are left out.
+fn parse_batch(output: &[u8], paths: &[&str]) -> Result<HashMap<String, Vec<u8>>, String> {
+    let mut contents = HashMap::new();
+    let mut rest = output;
+    for path in paths {
+        let end = rest
+            .iter()
+            .position(|b| *b == b'\n')
+            .ok_or("git cat-file output ended early")?;
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        if header.ends_with(" missing") {
+            continue;
+        }
+        let size: usize = header
+            .rsplit(' ')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| format!("unexpected git cat-file header: {header}"))?;
+        if rest.len() < size + 1 {
+            return Err("git cat-file output ended early".into());
+        }
+        contents.insert(path.to_string(), rest[..size].to_vec());
+        rest = &rest[size + 1..];
+    }
+    Ok(contents)
 }

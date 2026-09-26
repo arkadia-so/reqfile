@@ -10,6 +10,8 @@ pub mod paths;
 pub mod plan;
 pub mod report;
 pub mod reqfile;
+pub mod resolve;
 pub mod runlog;
 pub mod sarif;
+pub mod tags;
 pub mod yaml;

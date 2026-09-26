@@ -4,7 +4,7 @@ use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, repo, reqfile};
 
 /// Flags any .txt file containing TODO, through a script of the requirement.
 const NO_TODO: &str = r#"- command:
-    run: .reqfile/NO_TODO/check.sh
+    run: $REQFILE_ASSETS/check.sh
     files: "**/*.txt"
     pass_files: true
     fix_hint: Remove the TODO."#;
@@ -40,7 +40,7 @@ fn examples_of_a_command_check_must_match_their_labels() {
     assert_eq!(run.code, 0, "{}", run.output());
     assert_eq!(
         run.stdout,
-        "NO_TODO  3 examples, 3 as labeled\n\n1 requirements with examples, 3 examples. 0 failing their labels.\n"
+        "NO_TODO  asserted: 3 examples, 3 as labeled\n\n1 requirements: 1 asserted, 0 measured, 0 without evidence; 3 examples. 0 failing their labels.\n"
     );
 }
 
@@ -64,7 +64,8 @@ fn a_command_check_disagreeing_with_a_label_fails() {
 
     assert_eq!(run.code, 1, "{}", run.output());
     assert!(
-        run.stdout.contains("NO_TODO  3 examples, 0 as labeled\n"),
+        run.stdout
+            .contains("NO_TODO  asserted: 3 examples, 0 as labeled\n"),
         "{}",
         run.stdout
     );
@@ -122,7 +123,7 @@ fn decision_checks_are_measured_rather_than_asserted() {
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
         run.stdout.contains(
-            "DECOMPLECT  6 examples, measured: 1 of 4 violations caught (1 missed, 1 not selected, 1 uncertain); 1 of 2 correct examples flagged (0 uncertain)\n"
+            "DECOMPLECT  measured, no assertion: 1 of 4 violations caught (1 missed, 1 not selected, 1 uncertain); 1 of 2 correct examples flagged (0 uncertain)\n"
         ),
         "{}",
         run.stdout
@@ -226,6 +227,148 @@ fn a_violation_a_command_examined_is_missed_even_if_no_unit_was_selected() {
 
     assert!(
         run.stdout.contains("  violation-rust: missed\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_decision_requirement_with_every_example_missed_is_reported_as_measured() {
+    let jev = FakeJev::start(|_| reqfile_test_support::Reply::Probability(0.05));
+    let repo = repo!();
+    repo.write("Reqfile.yaml", &reqfile(&[("DECOMPLECT", "- decision")]));
+    repo.write(".reqfile/DECOMPLECT/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write(".reqfile/config.yaml", &jev.config());
+    for case in ["violation-a", "violation-b", "violation-c"] {
+        repo.write(
+            &format!(".reqfile/DECOMPLECT/examples/{case}/a.py"),
+            "def f():\n    pass\n",
+        );
+    }
+    repo.env("OPENROUTER_API_KEY", "key");
+
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout.starts_with(
+            "DECOMPLECT  measured, no assertion: 0 of 3 violations caught (3 missed, 0 not selected, 0 uncertain)"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.ends_with(
+            "1 requirements: 0 asserted, 1 measured, 0 without evidence; 3 examples. 0 failing their labels.\n"
+        ),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_requirement_without_examples_is_reported_as_no_evidence() {
+    let repo = no_todo_repo();
+
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        run.stdout,
+        "NO_TODO  no evidence: no labeled examples\n\n1 requirements: 0 asserted, 0 measured, 1 without evidence; 0 examples. 0 failing their labels.\n"
+    );
+}
+
+#[test]
+fn a_command_requirement_with_a_mismatched_label_exits_1() {
+    let repo = no_todo_repo();
+    repo.write(
+        ".reqfile/NO_TODO/examples/violation-clean/notes.txt",
+        "done\n",
+    );
+
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.starts_with(
+            "NO_TODO  asserted: 1 examples, 0 as labeled\n  violation-clean: missed\n"
+        ),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn examples_reach_assets_only_through_reqfile_assets() {
+    let repo = no_todo_repo();
+    // The case holds only its own files: no Reqfile, no .reqfile/.
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "NO_TODO",
+            &NO_TODO.replace(
+                "run: $REQFILE_ASSETS/check.sh",
+                "run: test ! -e Reqfile.yaml && test ! -e .reqfile && $REQFILE_ASSETS/check.sh",
+            ),
+        )]),
+    );
+    repo.write(
+        ".reqfile/NO_TODO/examples/violation-todo/notes.txt",
+        "TODO\n",
+    );
+    repo.write(".reqfile/NO_TODO/examples/ok-done/notes.txt", "done\n");
+
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout
+            .starts_with("NO_TODO  asserted: 2 examples, 2 as labeled\n"),
+        "{}",
+        run.stdout
+    );
+
+    // A command reaching its files by a path next to the Reqfile finds nothing there.
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "NO_TODO",
+            &NO_TODO.replace("$REQFILE_ASSETS/check.sh", ".reqfile/NO_TODO/check.sh"),
+        )]),
+    );
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 3, "{}", run.output());
+}
+
+#[test]
+fn an_imported_requirement_is_tested_with_its_definitions_examples_and_local_examples() {
+    let repo = repo!();
+    repo.write("std/Reqfile.yaml", &reqfile(&[("NO_TODO", NO_TODO)]));
+    repo.write("std/.reqfile/NO_TODO/check.sh", SCRIPT);
+    std::process::Command::new("chmod")
+        .args(["+x", "std/.reqfile/NO_TODO/check.sh"])
+        .current_dir(repo.path())
+        .status()
+        .expect("chmod");
+    repo.write(
+        "std/.reqfile/NO_TODO/examples/violation-from-definition/a.txt",
+        "TODO\n",
+    );
+    repo.write(
+        "Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: NO_TODO, use: ./std }\n",
+    );
+    repo.write(".reqfile/NO_TODO/examples/ok-local/a.txt", "done\n");
+
+    let run = repo.run(&["test"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout.starts_with(
+            "NO_TODO (Reqfile.yaml)  asserted: 2 examples, 2 as labeled\nNO_TODO (std/Reqfile.yaml)  asserted: 1 examples, 1 as labeled\n"
+        ),
         "{}",
         run.stdout
     );

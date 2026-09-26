@@ -96,7 +96,11 @@ fn command_and_decision_checks_are_accepted() {
             ("WITH_ADVISORY_DECISION", "- decision:\n    mode: advisory"),
         ]),
     );
-    repo.write(".reqfile/config.yaml", &jev.config());
+    // A blocking decision check needs a pinned model.
+    repo.write(
+        ".reqfile/config.yaml",
+        &format!("{}  model: typesafe/jev-1.13-20260917\n", jev.config()),
+    );
     for id in [
         "WITH_DECISION",
         "WITH_BLOCKING_DECISION",

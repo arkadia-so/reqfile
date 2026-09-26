@@ -31,10 +31,6 @@ const FUNCTION_KINDS: &[&str] = &[
     "arrow_function",
 ];
 
-pub fn spec_path(reqfile_dir: &str, id: &str) -> String {
-    super::paths::join(reqfile_dir, &format!(".reqfile/{id}/decision.yaml"))
-}
-
 pub struct DecisionSpec {
     units: Vec<UnitRule>,
     enclosing: bool,
@@ -386,7 +382,7 @@ pub fn ask(unit: &Unit, checks: &[(&str, &DecisionSpec)], model: &str) -> Asked 
     let keys = questions
         .questions
         .iter()
-        .map(|(_, q)| cache_key(model, &questions.state, q))
+        .map(|(id, q)| cache_key(model, &questions.state, id, q))
         .collect();
     Asked { questions, keys }
 }
@@ -414,11 +410,18 @@ pub fn spread<T>(batches: &[Batch], sizes: &[usize], per_batch: Vec<Vec<T>>) -> 
         .collect()
 }
 
-/// Identifies one question about one state asked to one exact model,
-/// whatever request carries it. 64 bits keep collisions out of reach for a
-/// repository's worth of answers while halving the cache size.
-pub fn cache_key(model: &str, state: &serde_json::Value, question: &serde_json::Value) -> String {
-    let digest = Sha256::digest(format!("{model}\n{state}\n{question}"));
+/// Identifies one requirement's question about one state asked to one exact
+/// model, whatever request carries it. Two requirements asking the same
+/// question keep separate answers, so neither can take the other's. 64 bits
+/// keep collisions out of reach for a repository's worth of answers while
+/// halving the cache size.
+pub fn cache_key(
+    model: &str,
+    state: &serde_json::Value,
+    id: &str,
+    question: &serde_json::Value,
+) -> String {
+    let digest = Sha256::digest(format!("{model}\n{state}\n{id}\n{question}"));
     digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 

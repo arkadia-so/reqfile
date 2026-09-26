@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use reqfile_test_support::{repo, reqfile};
+use serde_json::json;
 
 fn check_with(command: &str) -> reqfile_test_support::Run {
     let repo = repo!();
@@ -197,6 +198,124 @@ const SARIF: &str = r#"{
   }]
 }"#;
 
+fn check_sarif(output: &str, command: &str) -> reqfile_test_support::Run {
+    let repo = repo!();
+    repo.write("result.sarif", output);
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "RULE",
+            &format!("- command:\n    run: {command}\n    format: sarif\n    fix_hint: Fix it."),
+        )]),
+    );
+    repo.run(&["check", "--format", "json"])
+}
+
+#[test]
+fn sarif_results_are_violations_even_when_the_command_exits_0() {
+    let run = check_sarif(SARIF, "(cat result.sarif; exit 1) | cat");
+    assert_eq!(run.code, 1, "{}", run.output());
+    let report = run.json();
+    assert_eq!(report["summary"]["violations"], 3);
+    assert_eq!(report["summary"]["errors"], 0);
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| {
+                finding["file"] == "src/handler.py"
+                    && finding["line"] == 42
+                    && finding["fix_hint"] == "Fix it."
+            })
+    );
+}
+
+#[test]
+fn sarif_results_that_are_not_failures_or_are_suppressed_are_ignored() {
+    let cases = [
+        (json!({}), 1), // Absent kind defaults to fail.
+        (json!({"kind": "fail", "suppressions": []}), 1),
+        (json!({"kind": "pass"}), 0),
+        (json!({"kind": "open"}), 0),
+        (json!({"kind": "informational"}), 0),
+        (json!({"kind": "notApplicable"}), 0),
+        (json!({"kind": "review"}), 0),
+        (json!({"suppressions": [{"kind": "inSource"}]}), 0),
+        (
+            json!({"suppressions": [{"kind": "external", "status": "accepted"}]}),
+            0,
+        ),
+        (
+            json!({"suppressions": [{"kind": "external", "status": "rejected"}]}),
+            1,
+        ),
+        (
+            json!({"suppressions": [{"kind": "external", "status": "underReview"}]}),
+            1,
+        ),
+    ];
+    for (mut result, expected) in cases {
+        result["message"] = json!({"text": "A result"});
+        let output = json!({"runs": [{"results": [result]}]}).to_string();
+        for code in [0, 1] {
+            let run = check_sarif(&output, &format!("cat result.sarif; exit {code}"));
+            assert_eq!(
+                run.code,
+                expected,
+                "exit {code}, {output}: {}",
+                run.output()
+            );
+            assert_eq!(run.json()["summary"]["errors"], 0);
+            assert_eq!(run.json()["summary"]["violations"], expected);
+        }
+    }
+}
+
+#[test]
+fn a_successful_sarif_command_with_no_results_passes() {
+    let run = check_sarif(r#"{"runs":[{"results":[]}]}"#, "cat result.sarif");
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(run.json()["summary"]["violations"], 0);
+}
+
+#[test]
+fn malformed_sarif_suppressions_cannot_hide_a_violation() {
+    for suppression in [
+        json!({}),
+        json!({"kind": "bogus"}),
+        json!({"kind": "external", "status": null}),
+        json!({"kind": "external", "status": "bogus"}),
+    ] {
+        let output = json!({"runs": [{"results": [{
+            "kind": "fail",
+            "message": {"text": "Must not disappear"},
+            "suppressions": [suppression]
+        }]}]})
+        .to_string();
+        for code in [0, 1] {
+            let run = check_sarif(&output, &format!("cat result.sarif; exit {code}"));
+            assert_eq!(run.code, 3, "exit {code}, {output}: {}", run.output());
+            assert!(
+                run.stdout.contains("output is not valid SARIF"),
+                "{}",
+                run.output()
+            );
+        }
+    }
+}
+
+#[test]
+fn sarif_results_do_not_hide_an_unexpected_exit_code() {
+    let run = check_sarif(SARIF, "cat result.sarif; exit 2");
+    assert_eq!(run.code, 3, "{}", run.output());
+    assert!(
+        run.stdout.contains("failed with exit code 2"),
+        "{}",
+        run.output()
+    );
+}
+
 #[test]
 fn sarif_output_gives_one_violation_per_result_with_its_location() {
     let repo = repo!();
@@ -232,13 +351,17 @@ fn sarif_output_gives_one_violation_per_result_with_its_location() {
 
 #[test]
 fn unparseable_sarif_is_a_tool_error() {
-    let run = check_with("    run: echo not json; exit 1\n    format: sarif");
-    assert_eq!(run.code, 3, "{}", run.output());
-    assert!(
-        run.stdout.contains("output is not valid SARIF"),
-        "{}",
-        run.stdout
-    );
+    for code in [0, 1] {
+        let run = check_with(&format!(
+            "    run: echo not json; exit {code}\n    format: sarif"
+        ));
+        assert_eq!(run.code, 3, "exit {code}: {}", run.output());
+        assert!(
+            run.stdout.contains("output is not valid SARIF"),
+            "{}",
+            run.stdout
+        );
+    }
 }
 
 #[test]
@@ -302,6 +425,53 @@ fn a_background_process_holding_the_output_cannot_outlive_the_timeout() {
     assert_eq!(run.code, 3, "{}", run.output());
     assert!(
         run.stdout.contains("timed out after 1 seconds"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn commands_find_their_files_through_reqfile_assets() {
+    let repo = repo!();
+    repo.write(
+        "app/Reqfile.yaml",
+        &reqfile(&[(
+            "RULE",
+            "- command:\n    run: $REQFILE_ASSETS/check.sh\n    fix_hint: Fix it.",
+        )]),
+    );
+    repo.write(
+        "app/.reqfile/RULE/check.sh",
+        "#!/bin/sh\necho \"assets $REQFILE_ASSETS, in $(basename \"$(pwd)\")\"\nexit 1\n",
+    );
+    std::process::Command::new("chmod")
+        .args(["+x", "app/.reqfile/RULE/check.sh"])
+        .current_dir(repo.path())
+        .status()
+        .expect("chmod");
+
+    let run = repo.run(&["check"]);
+
+    let assets = repo
+        .path()
+        .canonicalize()
+        .expect("a canonical path")
+        .join("app/.reqfile/RULE");
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains(&format!("RULE  assets {}, in app\n", assets.display())),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn commands_run_the_same_reqfile_through_reqfile() {
+    let run = check_with("    run: $REQFILE --version; exit 1");
+    assert!(
+        run.stdout
+            .contains(&format!("RULE  reqfile {}\n", env!("CARGO_PKG_VERSION"))),
         "{}",
         run.stdout
     );

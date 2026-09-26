@@ -1,4 +1,5 @@
-//! LIST: `reqfile list` lists every requirement of the repository, with its type and checks.
+//! INSPECTION: `reqfile list` lists every requirement of the repository, with
+//! its type, checks and source.
 
 use reqfile_test_support::{Repo, repo};
 
@@ -92,4 +93,76 @@ fn invalid_reqfiles_are_config_errors() {
         "{}",
         run.stderr
     );
+}
+
+/// A repository defining FAIL_FAST in `std/` and taking it at the root, once
+/// as it is and once, in `app/`, with its own checks.
+fn use_repo() -> Repo {
+    let repo = repo!();
+    repo.write(
+        "std/Reqfile.yaml",
+        &format!(
+            "reqfile: 1\ncode:\n{}process:\n{}",
+            requirement("FAIL_FAST", DECISION),
+            requirement("REVIEWED", COMMAND)
+        ),
+    );
+    repo.write(
+        "Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: FAIL_FAST, use: ./std }\nprocess:\n  - { id: REVIEWED, use: ./std }\n",
+    );
+    repo.write(
+        "app/Reqfile.yaml",
+        &format!("reqfile: 1\ncode:\n  - id: FAIL_FAST\n    use: ../std\n    checks:\n{COMMAND}"),
+    );
+    repo
+}
+
+#[test]
+fn list_shows_use_blocks_with_their_source() {
+    let repo = use_repo();
+
+    let run = repo.run(&["list"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        run.stdout,
+        "From Reqfile.yaml:\n  FAIL_FAST (code)  use: ./std  checks: decision (inherited)\n  REVIEWED (process)  use: ./std  checks: command (inherited)\n\
+         \nFrom app/Reqfile.yaml:\n  FAIL_FAST (code)  use: ../std  checks: command (set here)\n\
+         \nFrom std/Reqfile.yaml:\n  FAIL_FAST (code)  checks: decision\n  REVIEWED (process)  checks: command\n\
+         \n5 requirements: 0 product, 3 code, 2 process.\n"
+    );
+}
+
+#[test]
+fn list_supports_json_output() {
+    let repo = use_repo();
+
+    let run = repo.run(&["list", "--format", "json", "--kind", "code"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    let json = run.json();
+    let requirements = json["requirements"].as_array().expect("a list");
+    assert_eq!(requirements.len(), 3);
+    assert_eq!(
+        requirements[0],
+        serde_json::json!({
+            "reqfile": "Reqfile.yaml",
+            "line": 3,
+            "id": "FAIL_FAST",
+            "kind": "code",
+            "must": "Must FAIL_FAST.",
+            "why": "Because of FAIL_FAST.",
+            "who": null,
+            "ref": null,
+            "checks": ["decision"],
+            "imported": {
+                "use": "./std",
+                "definition": "std/Reqfile.yaml:3",
+                "commit": null,
+                "checks_inherited": true,
+            },
+        })
+    );
+    assert_eq!(requirements[2]["imported"], serde_json::Value::Null);
 }

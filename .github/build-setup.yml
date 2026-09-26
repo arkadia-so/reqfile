@@ -1,0 +1,3 @@
+# Injected by cargo-dist into each release artifact build before packaging.
+- name: Test and check requirements before packaging
+  run: bash .github/check.sh

@@ -1,6 +1,6 @@
 //! SELECTION: `--changed [base]` and `--only ID,...`.
 
-use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Repo, repo, reqfile};
+use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Repo, remotes, repo, reqfile};
 
 const LIST_TXT: &str = r#"- command:
     run: "fail() { echo \"got $*\"; exit 1; }; fail"
@@ -331,6 +331,325 @@ fn a_widened_requirement_still_sees_deleted_files() {
     assert!(
         run.stdout.contains("TRIGGERED  triggered"),
         "{}",
+        run.stdout
+    );
+}
+
+/// PYTHON_FUNCTIONS asking `question` instead.
+fn asking(question: &str) -> String {
+    PYTHON_FUNCTIONS.replace("Does this function do more than one job?", question)
+}
+
+/// The (path, question, model) of every question Jev received, sorted.
+fn asked(jev: &FakeJev) -> Vec<(String, String, String)> {
+    let mut asked: Vec<(String, String, String)> = jev
+        .questions_received()
+        .iter()
+        .flat_map(|r| {
+            let path = r.body["state"]["path"]
+                .as_str()
+                .expect("a path")
+                .to_string();
+            let model = r.body["model"].as_str().expect("a model").to_string();
+            r.body["questions"]
+                .as_object()
+                .expect("questions")
+                .values()
+                .map(move |q| {
+                    (
+                        path.clone(),
+                        q["instructions"]["question"]
+                            .as_str()
+                            .expect("a question")
+                            .to_string(),
+                        model.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    asked.sort();
+    asked
+}
+
+fn paths_and_questions(jev: &FakeJev) -> Vec<(String, String)> {
+    asked(jev).into_iter().map(|(p, q, _)| (p, q)).collect()
+}
+
+fn pair(path: &str, question: &str) -> (String, String) {
+    (path.to_string(), question.to_string())
+}
+
+/// Commits everything on `main`, then works on a `feature` branch.
+fn branch(repo: &Repo) {
+    repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "feature"]);
+}
+
+/// The root takes FAIL_FAST from std/, which defines it asking Q1, with a
+/// unit in src/ and one in std/tools/.
+fn local_source_repo(jev: &FakeJev) -> Repo {
+    let repo = repo!();
+    repo.write(
+        "Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: FAIL_FAST, use: ./std }\n",
+    );
+    repo.write("std/Reqfile.yaml", &reqfile(&[("FAIL_FAST", "- decision")]));
+    repo.write("std/.reqfile/FAIL_FAST/decision.yaml", &asking("Q1"));
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("src/a.py", "def a():\n    pass\n");
+    repo.write("std/tools/b.py", "def b():\n    pass\n");
+    repo.env("OPENROUTER_API_KEY", "key");
+    repo
+}
+
+#[test]
+fn a_change_to_a_local_sources_assets_rechecks_every_block_resolving_to_it() {
+    let jev = FakeJev::by_marker();
+    let repo = local_source_repo(&jev);
+    repo.write("notes.txt", "");
+    branch(&repo);
+    repo.write("std/.reqfile/FAIL_FAST/decision.yaml", &asking("Q1b"));
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![pair("src/a.py", "Q1b"), pair("std/tools/b.py", "Q1b")],
+        "both the root block and std's definition use the edited files"
+    );
+}
+
+/// root `use: ./oss/reqfile`, whose block uses `./std` defined in
+/// oss/reqfile/std, with a unit in each of the three scopes.
+fn transitive_repo(jev: &FakeJev) -> Repo {
+    let repo = repo!();
+    repo.write(
+        "Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: FAIL_FAST, use: ./oss/reqfile }\n",
+    );
+    repo.write(
+        "oss/reqfile/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: FAIL_FAST, use: ./std }\n",
+    );
+    repo.write(
+        "oss/reqfile/std/Reqfile.yaml",
+        &reqfile(&[("FAIL_FAST", "- decision")]),
+    );
+    repo.write(
+        "oss/reqfile/std/.reqfile/FAIL_FAST/decision.yaml",
+        &asking("Q1"),
+    );
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("src/a.py", "def a():\n    pass\n");
+    repo.write("oss/reqfile/src/b.py", "def b():\n    pass\n");
+    repo.write("oss/reqfile/std/c.py", "def c():\n    pass\n");
+    repo.env("OPENROUTER_API_KEY", "key");
+    branch(&repo);
+    repo
+}
+
+#[test]
+fn a_why_change_in_an_intermediate_use_block_rechecks_only_its_scope() {
+    // Editing the definition's files rechecks every scope resolving to it.
+    let jev = FakeJev::by_marker();
+    let repo = transitive_repo(&jev);
+    repo.write(
+        "oss/reqfile/std/.reqfile/FAIL_FAST/decision.yaml",
+        &asking("Q1b"),
+    );
+    let run = repo.run(&["check", "--changed", "main"]);
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![
+            pair("oss/reqfile/src/b.py", "Q1b"),
+            pair("oss/reqfile/std/c.py", "Q1b"),
+            pair("src/a.py", "Q1b"),
+        ]
+    );
+
+    // Editing only the why of the intermediate block rechecks only its scope.
+    let jev = FakeJev::by_marker();
+    let repo = transitive_repo(&jev);
+    repo.write(
+        "oss/reqfile/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: FAIL_FAST, use: ./std, why: Reqfile must not hide failures. }\n",
+    );
+    let run = repo.run(&["check", "--changed", "main"]);
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![pair("oss/reqfile/src/b.py", "Q1")]
+    );
+}
+
+/// The root defines FAIL_FAST asking Q1, with units at the root, in
+/// services/api/ and in other/; acme/reqs defines it asking Q2.
+fn shadowing_repo(jev: &FakeJev) -> (reqfile_test_support::Remotes, Repo, String) {
+    let remotes = remotes!();
+    let acme = remotes.repo("acme/reqs");
+    acme.write("Reqfile.yaml", &reqfile(&[("FAIL_FAST", "- decision")]));
+    acme.write(".reqfile/FAIL_FAST/decision.yaml", &asking("Q2"));
+    acme.commit("S2");
+    let s2 = acme.head();
+    let repo = repo!();
+    remotes.serve(&repo);
+    repo.write("Reqfile.yaml", &reqfile(&[("FAIL_FAST", "- decision")]));
+    repo.write(".reqfile/FAIL_FAST/decision.yaml", &asking("Q1"));
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("a.py", "def a():\n    pass\n");
+    repo.write("services/api/b.py", "def b():\n    pass\n");
+    repo.write("other/c.py", "def c():\n    pass\n");
+    repo.env("OPENROUTER_API_KEY", "key");
+    (remotes, repo, s2)
+}
+
+fn shadow(s2: &str) -> String {
+    format!("reqfile: 1\ncode:\n  - {{ id: FAIL_FAST, use: acme/reqs@{s2} }}\n")
+}
+
+#[test]
+fn adding_a_shadowing_block_rechecks_its_subtree() {
+    let jev = FakeJev::by_marker();
+    let (_remotes, repo, s2) = shadowing_repo(&jev);
+    branch(&repo);
+    repo.write("services/api/Reqfile.yaml", &shadow(&s2));
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![pair("services/api/b.py", "Q2")]
+    );
+}
+
+#[test]
+fn removing_a_shadowing_block_rechecks_its_subtree_with_the_ancestor_block() {
+    let jev = FakeJev::by_marker();
+    let (_remotes, repo, s2) = shadowing_repo(&jev);
+    repo.write("services/api/Reqfile.yaml", &shadow(&s2));
+    branch(&repo);
+    repo.remove("services/api/Reqfile.yaml");
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![pair("services/api/b.py", "Q1")]
+    );
+}
+
+#[test]
+fn settings_next_to_a_local_source_only_affect_that_sources_own_scope() {
+    let jev = FakeJev::by_marker();
+    let repo = local_source_repo(&jev);
+    branch(&repo);
+    repo.write(
+        "std/.reqfile/config.yaml",
+        "decision:\n  model: typesafe/jev-std\n",
+    );
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        asked(&jev),
+        vec![(
+            "std/tools/b.py".to_string(),
+            "Q1".to_string(),
+            "typesafe/jev-std".to_string()
+        )],
+        "the root block keeps the root's settings"
+    );
+}
+
+#[test]
+fn a_pinned_ref_change_rechecks_the_whole_scope() {
+    let jev = FakeJev::by_marker();
+    let remotes = remotes!();
+    let acme = remotes.repo("acme/reqs");
+    acme.write("Reqfile.yaml", &reqfile(&[("FAIL_FAST", "- decision")]));
+    acme.write(".reqfile/FAIL_FAST/decision.yaml", &asking("Q1"));
+    acme.commit("S1");
+    let s1 = acme.head();
+    acme.write(".reqfile/FAIL_FAST/decision.yaml", &asking("Q2"));
+    acme.commit("S2");
+    let s2 = acme.head();
+    let repo = repo!();
+    remotes.serve(&repo);
+    let using = |commit: &str| {
+        format!("reqfile: 1\ncode:\n  - {{ id: FAIL_FAST, use: acme/reqs@{commit} }}\n")
+    };
+    repo.write("Reqfile.yaml", &using(&s1));
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("a.py", "def a():\n    pass\n");
+    repo.write("lib/b.py", "def b():\n    pass\n");
+    repo.env("OPENROUTER_API_KEY", "key");
+    branch(&repo);
+    repo.write("Reqfile.yaml", &using(&s2));
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        paths_and_questions(&jev),
+        vec![pair("a.py", "Q2"), pair("lib/b.py", "Q2")]
+    );
+}
+
+#[test]
+fn a_settings_change_rechecks_the_decision_checks_it_applies_to() {
+    let jev = FakeJev::by_marker();
+    let repo = repo!();
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[("DECOMPLECT", "- decision"), ("LIST", LIST_TXT)]),
+    );
+    repo.write(".reqfile/DECOMPLECT/decision.yaml", &asking("Q1"));
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("notes.txt", "");
+    repo.write("app/Reqfile.yaml", &reqfile(&[("APP_RULE", "- decision")]));
+    repo.write("app/.reqfile/APP_RULE/decision.yaml", &asking("QA"));
+    // app/ sets its own model, so the root's model does not apply to it.
+    repo.write(
+        "app/.reqfile/config.yaml",
+        "decision:\n  model: typesafe/jev-app\n",
+    );
+    repo.write("a.py", "def a():\n    pass\n");
+    repo.write("app/b.py", "def b():\n    pass\n");
+    repo.env("OPENROUTER_API_KEY", "key");
+    branch(&repo);
+    repo.write(
+        ".reqfile/config.yaml",
+        &format!("{}  model: typesafe/jev-root\n", jev.config()),
+    );
+
+    let run = repo.run(&["check", "--changed", "main"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        asked(&jev),
+        vec![
+            (
+                "a.py".to_string(),
+                "Q1".to_string(),
+                "typesafe/jev-root".to_string()
+            ),
+            (
+                "app/b.py".to_string(),
+                "Q1".to_string(),
+                "typesafe/jev-root".to_string()
+            ),
+        ],
+        "only the root requirement, whose settings changed, is asked again"
+    );
+    assert!(
+        !run.stdout.contains("LIST"),
+        "a model change leaves command checks incremental: {}",
         run.stdout
     );
 }

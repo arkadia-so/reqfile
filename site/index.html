@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta
+      name="description"
+      content="Give your coding agent requirements it can check. Reqfile turns your project's rules into concrete feedback, from local edits to CI."
+    />
+    <link rel="canonical" href="https://reqfile.dev/" />
+    <meta
+      property="og:title"
+      content="Reqfile — requirements your agent can check"
+    />
+    <meta
+      property="og:description"
+      content="Write what must hold. Check it as you code. An open-source feedback loop for coding agents and humans."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://reqfile.dev/" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+    <title>Reqfile — requirements your agent can check</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="https://github.com/arkadia-so/reqfile#readme"
+          >Docs <span aria-hidden="true">↗</span></a
+        >
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+        <a class="nav-cta" href="#get-started"
+          >Get started <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="code-cloud cloud-left" aria-hidden="true">
+          <span
+            >must: hold<br />checks: run<br />why: it matters<br />must: hold<br />checks:
+            run<br />why: it matters<br />must: hold<br />checks: run<br />why:
+            it matters<br />must: hold<br />checks: run<br />why: it
+            matters</span
+          >
+        </div>
+        <div class="code-cloud cloud-right" aria-hidden="true">
+          <span
+            >reqfile: 1<br />✓ check<br />↳ fix<br />↻ repeat<br />reqfile: 1<br />✓
+            check<br />↳ fix<br />↻ repeat<br />reqfile: 1<br />✓ check<br />↳
+            fix<br />↻ repeat</span
+          >
+        </div>
+        <a class="eyebrow" href="https://github.com/arkadia-so/reqfile"
+          ><span class="status-dot"></span> OPEN SOURCE
+          <span class="eyebrow-divider">/</span> BUILT FOR AGENTS
+          <span aria-hidden="true">↗</span></a
+        >
+        <h1 id="hero-title">
+          Give your agent<br />requirements it <span>can check.</span>
+        </h1>
+        <p class="hero-description">
+          Your project's rules, turned into concrete feedback.<br />Write what
+          must hold. Check it as you code.
+        </p>
+        <div class="setup" id="get-started">
+          <p class="agent-label">
+            Give this to your agent
+            <span class="agent-names"
+              >Claude Code <span>·</span> Codex <span>·</span> Cursor</span
+            >
+          </p>
+          <div class="command-box">
+            <span class="prompt" aria-hidden="true">↗</span
+            ><code id="setup-command">set up https://reqfile.dev/SKILL.md</code
+            ><button
+              type="button"
+              id="copy-command"
+              aria-label="Copy setup prompt"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="8" y="8" width="12" height="12" rx="2" />
+                <path
+                  d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+                />
+              </svg>
+            </button>
+          </div>
+          <p
+            class="setup-note"
+            id="copy-status"
+            role="status"
+            aria-live="polite"
+          >
+            Then let it connect the dots.
+            <a href="/SKILL.md"
+              >Read the skill <span aria-hidden="true">↗</span></a
+            >
+          </p>
+        </div>
+        <div
+          class="flow"
+          aria-label="Requirements become checks, checks give feedback, and your agent fixes the code"
+        >
+          <div class="flow-file">
+            <svg viewBox="0 0 36 42" aria-hidden="true">
+              <path
+                d="M8 2h14l10 10v28H4V2h4Zm14 0v10h10M11 23l5 5 10-11"
+              /></svg
+            ><span>Reqfile.yaml</span>
+          </div>
+          <span class="flow-line" aria-hidden="true"></span>
+          <div class="flow-engine">
+            <span class="mark" aria-hidden="true">r<span>✓</span></span
+            ><span>reqfile check</span>
+          </div>
+          <span class="flow-line" aria-hidden="true"></span>
+          <div class="flow-feedback">
+            <span class="feedback-icon" aria-hidden="true">↻</span
+            ><span>Feedback your agent can act on</span>
+          </div>
+        </div>
+        <p class="hero-footnote">
+          One file. Your existing tools. A tighter feedback loop.
+        </p>
+      </section>
+
+      <section
+        class="how-section"
+        id="how-it-works"
+        aria-labelledby="how-title"
+      >
+        <div class="section-heading">
+          <p class="overline">FROM INTENT TO FEEDBACK</p>
+          <h2 id="how-title">Make the rules part of the loop.</h2>
+          <p>
+            Requirements live next to your code, so every agent starts with the
+            same expectations.
+          </p>
+        </div>
+        <div class="example-grid">
+          <article class="example-card">
+            <div class="card-heading">
+              <span><span class="file-dot"></span> Reqfile.yaml</span
+              ><span>01 / DEFINE</span>
+            </div>
+            <pre><code><span class="syntax-muted"># Say what must hold, and why.</span>
+<span class="syntax-blue">reqfile:</span> 1
+<span class="syntax-blue">code:</span>
+  - <span class="syntax-blue">id:</span> EXPLICIT_EXCEPTIONS
+    <span class="syntax-blue">must:</span> No bare except clauses.
+    <span class="syntax-blue">why:</span> Unexpected failures must surface.
+    <span class="syntax-blue">checks:</span>
+      - <span class="syntax-blue">command:</span>
+          <span class="syntax-blue">run:</span> ruff check --select E722 .
+          <span class="syntax-blue">fast:</span> true
+          <span class="syntax-blue">fix_hint:</span> Catch a specific exception.</code></pre>
+          </article>
+          <article class="example-card terminal-card">
+            <div class="card-heading">
+              <span><i></i><i></i><i></i> Agent terminal</span
+              ><span>02 / CHECK → FIX</span>
+            </div>
+            <pre><code><span class="terminal-muted">$</span> reqfile check
+
+<span class="terminal-amber">EXPLICIT_EXCEPTIONS</span>
+  E722 Do not use bare `except`
+  <span class="terminal-muted">fix:</span> Catch a specific exception.
+
+<span class="terminal-muted"># Your agent fixes the code and reruns.</span>
+<span class="terminal-muted">$</span> reqfile check
+
+<span class="terminal-green">1 check run. 0 violations. 0 errors.</span></code></pre>
+            <span class="example-label">Illustrative output</span>
+          </article>
+        </div>
+        <div class="principles">
+          <article>
+            <span class="principle-number">01</span>
+            <h3>Keep the tools you trust.</h3>
+            <p>
+              Run your linters, tests and scripts. Add a decision check when a
+              rule needs judgment.
+            </p>
+          </article>
+          <article>
+            <span class="principle-number">02</span>
+            <h3>Put context next to code.</h3>
+            <p>
+              Requirements cascade through folders. Your agent can ask what
+              applies before making a change.
+            </p>
+          </article>
+          <article>
+            <span class="principle-number">03</span>
+            <h3>Close the loop.</h3>
+            <p>
+              Check during edits and in CI. Get the requirement, the finding and
+              a concrete hint for fixing it.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="bottom-cta" aria-label="Start using Reqfile">
+        <h2>Less guessing.<br /><span>More feedback.</span></h2>
+        <a href="#get-started"
+          >Set up Reqfile <span aria-hidden="true">↗</span></a
+        >
+      </section>
+    </main>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

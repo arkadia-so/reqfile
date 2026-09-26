@@ -285,12 +285,15 @@ impl Fields<'_> {
     }
 
     pub fn required(&mut self, key: &str) -> Result<Node, ConfigError> {
-        self.optional(key).ok_or_else(|| {
-            ConfigError::at(
-                self.file,
-                self.line,
-                format!("{} is missing the required field `{key}`", self.what),
-            )
-        })
+        self.optional(key).ok_or_else(|| self.missing(key))
+    }
+
+    /// The error for a required field that is absent.
+    pub fn missing(&self, key: &str) -> ConfigError {
+        ConfigError::at(
+            self.file,
+            self.line,
+            format!("{} is missing the required field `{key}`", self.what),
+        )
     }
 }

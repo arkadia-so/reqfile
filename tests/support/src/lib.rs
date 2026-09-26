@@ -18,6 +18,14 @@ macro_rules! repo {
     };
 }
 
+/// A new set of remote repositories, for sources `owner/repo@ref`.
+#[macro_export]
+macro_rules! remotes {
+    () => {
+        $crate::Remotes::new(&$crate::binary!())
+    };
+}
+
 /// The `reqfile` binary of the calling test crate, at a stable private path.
 #[macro_export]
 macro_rules! binary {
@@ -64,7 +72,9 @@ pub const DEFAULT_MODEL: &str = "~typesafe/jev-latest";
 
 /// A throwaway git repository.
 pub struct Repo {
-    dir: TempDir,
+    /// The folder, removed when dropped unless another owner removes it.
+    _dir: Option<TempDir>,
+    root: PathBuf,
     binary: PathBuf,
     env: Mutex<Vec<(String, String)>>,
 }
@@ -91,8 +101,15 @@ impl Run {
 
 impl Repo {
     pub fn new(binary: &str) -> Self {
+        let dir = tempfile::tempdir().expect("create a temporary folder");
+        let root = dir.path().to_path_buf();
+        Self::init(Some(dir), root, binary)
+    }
+
+    fn init(dir: Option<TempDir>, root: PathBuf, binary: &str) -> Self {
         let repo = Self {
-            dir: tempfile::tempdir().expect("create a temporary folder"),
+            _dir: dir,
+            root,
             binary: PathBuf::from(binary),
             env: Mutex::new(Vec::new()),
         };
@@ -102,7 +119,12 @@ impl Repo {
     }
 
     pub fn path(&self) -> &Path {
-        self.dir.path()
+        &self.root
+    }
+
+    /// The commit HEAD points to.
+    pub fn head(&self) -> String {
+        self.git(&["rev-parse", "HEAD"]).trim().to_string()
     }
 
     /// Writes a file, creating its folders.
@@ -176,6 +198,38 @@ impl Repo {
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         }
+    }
+}
+
+/// Repositories standing in for `owner/repo` sources: reqfile fetches
+/// `$REQFILE_GIT_BASE/owner/repo`, set to this folder with [`Remotes::serve`].
+pub struct Remotes {
+    base: TempDir,
+    binary: String,
+}
+
+impl Remotes {
+    pub fn new(binary: &str) -> Self {
+        Self {
+            base: tempfile::tempdir().expect("create a temporary folder"),
+            binary: binary.to_string(),
+        }
+    }
+
+    /// A new repository for `owner/repo`.
+    pub fn repo(&self, name: &str) -> Repo {
+        let root = self.base.path().join(name);
+        fs::create_dir_all(&root).expect("create the remote repository");
+        Repo::init(None, root, &self.binary)
+    }
+
+    pub fn base(&self) -> &Path {
+        self.base.path()
+    }
+
+    /// Makes `repo` fetch its sources from these remotes.
+    pub fn serve(&self, repo: &Repo) {
+        repo.env("REQFILE_GIT_BASE", &self.base.path().to_string_lossy());
     }
 }
 
@@ -286,12 +340,15 @@ impl FakeJev {
         }
     }
 
-    /// Answers 0.95 for units containing `VIOLATION`, 0.5 for `UNSURE`, 0.05 otherwise.
+    /// Answers 0.95 for units containing `VIOLATION`, 0.8 for `P80`, 0.5
+    /// for `UNSURE`, 0.05 otherwise.
     pub fn by_marker() -> Self {
         Self::start(|body| {
             let unit = body["state"]["unit"].as_str().unwrap_or_default();
             Reply::Probability(if unit.contains("VIOLATION") {
                 0.95
+            } else if unit.contains("P80") {
+                0.8
             } else if unit.contains("UNSURE") {
                 0.5
             } else {

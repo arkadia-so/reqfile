@@ -1,5 +1,5 @@
 //! The subset of SARIF 2.1 that reqfile reads: each result's rule, message
-//! and first location.
+//! and first location, with result kinds and suppressions respected.
 
 use serde::Deserialize;
 
@@ -10,6 +10,12 @@ pub struct SarifResult {
     pub message: String,
     pub file: Option<String>,
     pub line: Option<usize>,
+}
+
+pub struct Parsed {
+    /// Distinguishes an empty report from one whose results were all ignored.
+    pub had_results: bool,
+    pub violations: Vec<SarifResult>,
 }
 
 #[derive(Deserialize)]
@@ -26,10 +32,51 @@ struct Run {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ResultEntry {
+    #[serde(default)]
+    kind: ResultKind,
+    #[serde(default)]
+    suppressions: Vec<Suppression>,
     rule_id: Option<String>,
     message: Message,
     #[serde(default)]
     locations: Vec<Location>,
+}
+
+#[derive(Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+enum ResultKind {
+    #[default]
+    Fail,
+    Pass,
+    Open,
+    Informational,
+    NotApplicable,
+    Review,
+}
+
+#[derive(Deserialize)]
+struct Suppression {
+    // Both locations suppress alike, but a missing or unknown kind is invalid.
+    #[serde(rename = "kind")]
+    _kind: SuppressionKind,
+    #[serde(default)]
+    status: SuppressionStatus,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum SuppressionKind {
+    InSource,
+    External,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum SuppressionStatus {
+    #[default]
+    Accepted,
+    UnderReview,
+    Rejected,
 }
 
 #[derive(Deserialize)]
@@ -64,13 +111,21 @@ struct Region {
 /// Parses a SARIF log written by a command run from repository folder
 /// `cwd`, in a repository whose absolute root is `repo_root`. Locations
 /// become repository paths.
-pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Vec<SarifResult>, String> {
+pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Parsed, String> {
     let log: Log =
         serde_json::from_str(text).map_err(|e| format!("output is not valid SARIF: {e}"))?;
-    Ok(log
+    let had_results = log.runs.iter().any(|run| !run.results.is_empty());
+    let violations = log
         .runs
         .into_iter()
         .flat_map(|run| run.results)
+        .filter(|result| {
+            result.kind == ResultKind::Fail
+                && !result
+                    .suppressions
+                    .iter()
+                    .any(|s| matches!(s.status, SuppressionStatus::Accepted))
+        })
         .map(|result| {
             let physical = result
                 .locations
@@ -96,7 +151,11 @@ pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Vec<SarifResult>,
                 line,
             }
         })
-        .collect())
+        .collect();
+    Ok(Parsed {
+        had_results,
+        violations,
+    })
 }
 
 fn repository_path(uri: &str, cwd: &str, repo_root: &str) -> String {

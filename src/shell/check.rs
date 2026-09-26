@@ -1,6 +1,6 @@
 //! `reqfile check`: plans every check, runs commands and Jev calls, and reports.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,9 +18,10 @@ use crate::core::command::{self, CommandViolation};
 use crate::core::config::{self, DecisionConfig};
 use crate::core::decision::{self, DecisionSpec, Unit, Verdict};
 use crate::core::paths;
-use crate::core::plan::{self, Changed, CommandPlan, Selection};
+use crate::core::plan::{self, Candidate, CommandPlan};
 use crate::core::report::{Error, Finding, FindingKind, Report};
-use crate::core::reqfile::{Check, CommandCheck, OutputFormat, Reqfile, Requirement};
+use crate::core::reqfile::{Check, CommandCheck, OutputFormat};
+use crate::core::resolve::{self, Assets, Effective, Scope};
 use crate::core::runlog;
 
 pub struct Options {
@@ -50,14 +51,13 @@ fn log_line(log: &mut Option<Log>, kind: &str, fields: serde_json::Value) {
 }
 
 struct CommandJob<'w> {
-    requirement: &'w Requirement,
-    dir: &'w str,
+    block: &'w Effective,
     check: &'w CommandCheck,
     args: Vec<String>,
 }
 
 struct DecisionJob<'w> {
-    requirement: &'w Requirement,
+    block: &'w Effective,
     /// How to call Jev, from the settings of that folder.
     jev: DecisionConfig,
     spec: DecisionSpec,
@@ -66,52 +66,66 @@ struct DecisionJob<'w> {
 }
 
 pub fn run(cwd: &Path, options: &Options) -> Report {
-    let workspace = match Workspace::load(cwd) {
-        Ok(workspace) => workspace,
-        Err(errors) => return Report::from_errors(errors),
-    };
-    let selected = match select(&workspace.reqfiles, options.only.as_deref()) {
+    match Workspace::load(cwd) {
+        Ok(workspace) => run_in(&workspace, options),
+        Err(errors) => Report::from_errors(errors),
+    }
+}
+
+/// Runs the checks of a loaded workspace.
+pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
+    let selected = match select(&workspace.blocks, options.only.as_deref()) {
         Ok(selected) => selected,
         Err(errors) => return Report::from_errors(errors),
     };
-    let specs = match load_specs(&workspace, &selected) {
+    let specs = match load_specs(workspace, &selected) {
         Ok(specs) => specs,
         Err(errors) => return Report::from_errors(errors),
     };
-    let selection = match selection(&workspace, &selected, options) {
-        Ok(selection) => selection,
+    let changes = match changes(workspace, &selected, options) {
+        Ok(changes) => changes,
         Err(error) => return Report::from_errors([error]),
     };
-    let mut log = match open_log(&workspace, options) {
+    let candidates = match selected
+        .iter()
+        .map(|&i| candidates(workspace, changes.as_ref(), i))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(candidates) => candidates,
+        Err(error) => return Report::from_errors([error]),
+    };
+    let mut log = match open_log(workspace, options) {
         Ok(log) => log,
         Err(error) => return Report::from_errors([error]),
     };
-    let mut report = Report::default();
+    let mut report = Report {
+        sources: workspace.sources.clone(),
+        ..Report::default()
+    };
     let plan = plan(
-        &workspace,
+        workspace,
         &selected,
         specs,
-        &selection,
+        &candidates,
         options.fast,
         &mut report,
     );
     report.checks_run += plan.commands.len() + plan.decisions.len();
-    run_commands(&workspace, &plan.commands, &mut report, &mut log);
-    if selected
-        .iter()
-        .any(|(_, r)| r.checks.iter().any(|c| matches!(c, Check::Decision(_))))
-    {
+    run_commands(workspace, &plan.commands, &mut report, &mut log);
+    if selected.iter().any(|&i| {
+        workspace.blocks[i]
+            .checks
+            .iter()
+            .any(|c| matches!(c, Check::Decision(_)))
+    }) {
         // Only a run that saw every unit knows which cached answers are obsolete.
         let prune = options.changed.is_none() && options.only.is_none();
-        run_decisions(&workspace, &plan.decisions, prune, &mut report, &mut log);
+        run_decisions(workspace, &plan.decisions, prune, &mut report, &mut log);
     }
     if let (Some(path), Some(log)) = (&options.log, log)
         && let Err(message) = append_log(path, &log.lines)
     {
-        report.errors.push(Error {
-            requirement: None,
-            message,
-        });
+        report.errors.push(Error::blocking(None, message));
     }
     // Blocking violations first, then advisory ones, then uncertain ones, each in Reqfile order.
     report.findings.sort_by_key(|f| f.kind);
@@ -162,13 +176,14 @@ struct Plan<'w> {
     decisions: Vec<DecisionJob<'w>>,
 }
 
-/// Plans every selected check against the selection; checks with nothing to
-/// check and units that cannot be read are recorded in `report`.
+/// Plans every check of the selected blocks against their candidate files;
+/// checks with nothing to check and units that cannot be read are recorded
+/// in `report`.
 fn plan<'w>(
     workspace: &'w Workspace,
-    selected: &[(&'w Reqfile, &'w Requirement)],
-    specs: Vec<DecisionSpec>,
-    selection: &Selection,
+    selected: &[usize],
+    specs: Vec<Option<DecisionSpec>>,
+    candidates: &[Vec<Candidate>],
     fast: bool,
     report: &mut Report,
 ) -> Plan<'w> {
@@ -176,36 +191,28 @@ fn plan<'w>(
         commands: Vec::new(),
         decisions: Vec::new(),
     };
-    let mut specs = specs.into_iter();
-    for &(reqfile, requirement) in selected {
-        let full = selection.redefined(reqfile, requirement);
-        for check in &requirement.checks {
+    for ((&index, mut spec), candidates) in selected.iter().zip(specs).zip(candidates) {
+        let block = &workspace.blocks[index];
+        for check in &block.checks {
             match check {
                 Check::Command(check) if fast && !check.fast => {
                     report.checks_left_for_full_run += 1
                 }
-                Check::Command(check) => {
-                    match plan::plan_command(&reqfile.dir, check, selection, full) {
-                        CommandPlan::Run(args) => plan.commands.push(CommandJob {
-                            requirement,
-                            dir: &reqfile.dir,
-                            check,
-                            args,
-                        }),
-                        CommandPlan::NoMatchingFiles => report.checks_with_nothing_to_check += 1,
-                    }
-                }
+                Check::Command(check) => match plan::plan_command(check, candidates) {
+                    CommandPlan::Run(args) => plan.commands.push(CommandJob { block, check, args }),
+                    CommandPlan::NoMatchingFiles => report.checks_with_nothing_to_check += 1,
+                },
                 Check::Decision(check) => {
-                    let spec = specs
-                        .next()
-                        .expect("a spec was loaded for every decision check");
-                    let files = plan::decision_files(&reqfile.dir, &spec, selection, full);
+                    let spec = spec
+                        .take()
+                        .expect("a spec was loaded for the decision check");
+                    let files = plan::decision_files(&spec, candidates);
                     match extract_units(&workspace.root, &spec, &files) {
                         // No file, or no code in them is a unit: nothing would be judged.
                         Ok(units) if units.is_empty() => report.checks_with_nothing_to_check += 1,
                         Ok(units) => plan.decisions.push(DecisionJob {
-                            requirement,
-                            jev: workspace.settings.decision(&reqfile.dir),
+                            block,
+                            jev: workspace.settings.decision(&block.dir),
                             spec,
                             blocking: check.blocking,
                             units,
@@ -213,8 +220,9 @@ fn plan<'w>(
                         Err(message) => {
                             report.checks_run += 1;
                             report.errors.push(Error {
-                                requirement: Some(requirement.id.clone()),
+                                requirement: Some(block.id.clone()),
                                 message,
+                                blocking: check.blocking,
                             });
                         }
                     }
@@ -234,18 +242,27 @@ fn run_commands(
 ) {
     let root = workspace.root.to_string_lossy();
     let parallelism = thread::available_parallelism().map_or(1, |n| n.get());
+    // Commands can run reqfile itself, such as `$REQFILE list --format json`,
+    // with the same version as the run.
+    let executable = std::env::current_exe().ok();
     let outcomes = pool::map(commands, parallelism, |job| {
+        let assets = workspace.assets_path(job.block);
+        let mut env: Vec<(&str, &Path)> = vec![("REQFILE_ASSETS", &assets)];
+        if let Some(executable) = &executable {
+            env.push(("REQFILE", executable));
+        }
         let outcome = process::run(
-            &workspace.root.join(job.dir),
+            &workspace.root.join(&job.block.dir),
             &job.check.run,
             &job.args,
+            &env,
             job.check.format == OutputFormat::Exit,
             Duration::from_secs(job.check.timeout_secs),
         );
-        command::judge(job.check, outcome, job.dir, &root)
+        command::judge(job.check, outcome, &job.block.dir, &root)
     });
     for (job, outcome) in commands.iter().zip(outcomes) {
-        let id = &job.requirement.id;
+        let id = &job.block.id;
         match outcome {
             Ok(violations) => {
                 let status = if violations.is_empty() {
@@ -275,10 +292,9 @@ fn run_commands(
                     "command_check",
                     json!({ "requirement": id, "command": job.check.run, "files": job.args.len(), "status": "error", "error": message }),
                 );
-                report.errors.push(Error {
-                    requirement: Some(id.clone()),
-                    message,
-                });
+                report
+                    .errors
+                    .push(Error::blocking(Some(id.clone()), message));
             }
         }
     }
@@ -295,18 +311,21 @@ fn run_decisions(
     let checks: Vec<ask::Check> = decisions
         .iter()
         .map(|job| ask::Check {
-            id: &job.requirement.id,
+            id: &job.block.id,
             spec: &job.spec,
             jev: &job.jev,
             units: &job.units,
         })
         .collect();
     let (answers, errors) = ask::answers(&workspace.root, &checks, prune);
+    // Errors of no check in particular block the run only if a blocking check could be affected.
+    let blocking = decisions.iter().any(|job| job.blocking);
     report
         .errors
         .extend(errors.into_iter().map(|message| Error {
             requirement: None,
             message,
+            blocking,
         }));
     report.units_judged = Some(answers.iter().flatten().filter(|a| a.is_ok()).count());
     for (job, answers) in decisions.iter().zip(answers) {
@@ -314,56 +333,73 @@ fn run_decisions(
     }
 }
 
-/// The requirements to check, in Reqfile order, restricted by `--only`.
-fn select<'w>(
-    reqfiles: &'w [Reqfile],
-    only: Option<&[String]>,
-) -> Result<Vec<(&'w Reqfile, &'w Requirement)>, Vec<String>> {
-    let all = reqfiles
-        .iter()
-        .flat_map(|r| r.requirements.iter().map(move |req| (r, req)));
+/// The blocks to check, in Reqfile order, restricted by `--only`.
+fn select(blocks: &[Effective], only: Option<&[String]>) -> Result<Vec<usize>, Vec<String>> {
     let Some(only) = only else {
-        return Ok(all.collect());
+        return Ok((0..blocks.len()).collect());
     };
     let unknown: Vec<String> = only
         .iter()
-        .filter(|id| {
-            !reqfiles
-                .iter()
-                .any(|r| r.requirements.iter().any(|req| &req.id == *id))
-        })
+        .filter(|id| !blocks.iter().any(|b| &b.id == *id))
         .map(|id| format!("--only: no requirement has the id {id}"))
         .collect();
     if unknown.is_empty() {
-        Ok(all.filter(|(_, req)| only.contains(&req.id)).collect())
+        Ok((0..blocks.len())
+            .filter(|&i| only.contains(&blocks[i].id))
+            .collect())
     } else {
         Err(unknown)
     }
 }
 
-/// The decision.yaml of every selected decision check, in order.
+/// The decision.yaml of every selected block with a decision check, read
+/// from its `$REQFILE_ASSETS`, in order.
 fn load_specs(
     workspace: &Workspace,
-    selected: &[(&Reqfile, &Requirement)],
-) -> Result<Vec<DecisionSpec>, Vec<String>> {
+    selected: &[usize],
+) -> Result<Vec<Option<DecisionSpec>>, Vec<String>> {
     let mut specs = Vec::new();
     let mut errors = Vec::new();
-    for (reqfile, requirement) in selected {
-        for check in &requirement.checks {
-            let Check::Decision(check) = check else {
-                continue;
-            };
-            let path = decision::spec_path(&reqfile.dir, &requirement.id);
-            match fs::read_to_string(workspace.root.join(&path)) {
-                Ok(text) => match decision::parse_spec(&path, &text) {
-                    Ok(spec) => specs.push(spec),
-                    Err(e) => errors.push(e.to_string()),
-                },
-                Err(e) => errors.push(format!(
-                    "{}:{}: the decision check of {} needs {path}: {e}",
-                    reqfile.path, check.line, requirement.id
-                )),
-            }
+    for &index in selected {
+        let block = &workspace.blocks[index];
+        let Some(check) = block.checks.iter().find_map(|c| match c {
+            Check::Decision(d) => Some(d),
+            Check::Command(_) => None,
+        }) else {
+            specs.push(None);
+            continue;
+        };
+        // Inherited checks are declared in the definition; the block is what applies here.
+        let at = match &block.imported {
+            None => format!("{}:{}", block.reqfile, check.line),
+            Some(_) => block.block(),
+        };
+        let jev = workspace.settings.decision(&block.dir);
+        if check.blocking && !jev.model_is_pinned() {
+            errors.push(format!(
+                "{at}: the decision check of {} is blocking, so its model must be pinned, but {} follows `{}`; set `decision.model` to an exact version, such as typesafe/jev-1.13-20260917, in {}",
+                block.id,
+                paths::display_dir(&block.dir),
+                jev.model,
+                config::path(&block.dir)
+            ));
+            specs.push(None);
+            continue;
+        }
+        let path = workspace.assets_path(block).join("decision.yaml");
+        let shown = match &block.assets {
+            Assets::Repo(dir) => paths::join(dir, "decision.yaml"),
+            Assets::External(_) => path.to_string_lossy().into_owned(),
+        };
+        match fs::read_to_string(&path) {
+            Ok(text) => match decision::parse_spec(&shown, &text) {
+                Ok(spec) => specs.push(Some(spec)),
+                Err(e) => errors.push(e.to_string()),
+            },
+            Err(e) => errors.push(format!(
+                "{at}: the decision check of {} needs {shown}: {e}",
+                block.id
+            )),
         }
     }
     if errors.is_empty() {
@@ -373,46 +409,70 @@ fn load_specs(
     }
 }
 
-/// The files checks may target; with `--changed`, a base is resolved only
-/// for the folders of the selected requirements.
-fn selection(
+/// What changed since the base of `--changed`, for each base in use.
+struct Changes {
+    by_base: BTreeMap<String, BaseChanges>,
+    /// The base of each selected block with a check that will run.
+    base_of: HashMap<usize, String>,
+}
+
+struct BaseChanges {
+    /// Every changed path, including excluded ones such as `.reqfile/` files.
+    all: BTreeSet<String>,
+    /// Changed paths that checks may target, deleted ones included.
+    targets: BTreeSet<String>,
+    requirements: Requirements,
+}
+
+/// The requirements at the merge-base, to compare each block with.
+enum Requirements {
+    /// No Reqfile, config or requirement file changed, and no git source
+    /// could have moved: every block is as it was.
+    Unchanged,
+    At(Box<Workspace>),
+    /// The merge-base's requirements cannot be read, such as an invalid
+    /// Reqfile there: every block counts as changed.
+    Unreadable,
+}
+
+/// With `--changed`, the changes since the base of each folder; a base is
+/// resolved only for the selected blocks with a check that will run.
+fn changes(
     workspace: &Workspace,
-    selected: &[(&Reqfile, &Requirement)],
+    selected: &[usize],
     options: &Options,
-) -> Result<Selection, String> {
+) -> Result<Option<Changes>, String> {
     let Some(cli_base) = &options.changed else {
-        return Ok(Selection {
-            targets: workspace.targets.clone(),
-            changed: None,
-        });
+        return Ok(None);
     };
     let default_base = super::git::default_base(&workspace.root)?;
-    let mut by_base: BTreeMap<String, Changed> = BTreeMap::new();
-    let mut by_dir = BTreeMap::new();
-    // Only folders with a check that will run need a base.
     let runs = |check: &Check| match check {
         Check::Command(command) => !options.fast || command.fast,
         Check::Decision(_) => true,
     };
-    let dirs: BTreeSet<&str> = selected
-        .iter()
-        .filter(|(_, requirement)| requirement.checks.iter().any(runs))
-        .map(|(r, _)| r.dir.as_str())
-        .collect();
-    for dir in dirs {
+    let mut changes = Changes {
+        by_base: BTreeMap::new(),
+        base_of: HashMap::new(),
+    };
+    for &index in selected {
+        let block = &workspace.blocks[index];
+        if !block.checks.iter().any(runs) {
+            continue;
+        }
         let base = cli_base
             .clone()
-            .or_else(|| workspace.settings.base(dir).map(String::from))
+            .or_else(|| workspace.settings.base(&block.dir).map(String::from))
             .or_else(|| default_base.clone())
             .ok_or_else(|| {
                 format!(
                     "--changed needs a base for {}: pass one (reqfile check --changed origin/main), set `base` in {}, or set origin/HEAD (git remote set-head origin --auto)",
-                    paths::display_dir(dir),
-                    config::path(dir)
+                    paths::display_dir(&block.dir),
+                    config::path(&block.dir)
                 )
             })?;
-        if !by_base.contains_key(&base) {
-            let all: BTreeSet<String> = super::git::changed(&workspace.root, &base)?
+        if !changes.by_base.contains_key(&base) {
+            let merge_base = super::git::merge_base(&workspace.root, &base)?;
+            let all: BTreeSet<String> = super::git::changed(&workspace.root, &merge_base)?
                 .into_iter()
                 .collect();
             let targets = all
@@ -420,33 +480,117 @@ fn selection(
                 .filter(|p| !workspace.settings.is_excluded(p))
                 .cloned()
                 .collect();
-            by_base.insert(base.clone(), Changed { targets, all });
+            let requirements_changed = all.iter().any(|p| {
+                paths::file_name(p) == crate::core::reqfile::FILE_NAME
+                    || p.split('/').any(|part| part == ".reqfile")
+            });
+            let requirements = if !requirements_changed && workspace.sources.is_empty() {
+                Requirements::Unchanged
+            } else {
+                match Workspace::at_commit(&workspace.root, &merge_base) {
+                    Ok(at) => Requirements::At(Box::new(at)),
+                    Err(_) => Requirements::Unreadable,
+                }
+            };
+            changes.by_base.insert(
+                base.clone(),
+                BaseChanges {
+                    all,
+                    targets,
+                    requirements,
+                },
+            );
         }
-        by_dir.insert(dir.to_string(), by_base[&base].clone());
+        changes.base_of.insert(index, base);
     }
-    Ok(Selection {
-        targets: workspace.targets.clone(),
-        changed: Some(by_dir),
-    })
+    Ok(Some(changes))
+}
+
+/// The files block `index` may look at: its whole scope, or with
+/// `--changed`, the files that changed and those whose block is not the
+/// same as at the base (another block, or one whose requirement, files,
+/// settings or source changed), since unchanged files may now fail it.
+fn candidates<'w>(
+    workspace: &'w Workspace,
+    changes: Option<&'w Changes>,
+    index: usize,
+) -> Result<Vec<Candidate<'w>>, String> {
+    let scope = Scope::of(&workspace.blocks, index);
+    let in_scope = |path: &'w String| {
+        scope.relative(path).map(|relative| Candidate {
+            path,
+            relative,
+            exists: workspace.targets.contains(path),
+        })
+    };
+    let Some(changes) = changes else {
+        return Ok(workspace.targets.iter().filter_map(in_scope).collect());
+    };
+    let Some(base) = changes.base_of.get(&index) else {
+        // No check of this block runs.
+        return Ok(Vec::new());
+    };
+    let changed = &changes.by_base[base];
+    let block = &workspace.blocks[index];
+    let now = match &changed.requirements {
+        Requirements::At(_) => Some(workspace.fingerprint(index)?),
+        Requirements::Unchanged | Requirements::Unreadable => None,
+    };
+    let mut same_block: HashMap<&str, bool> = HashMap::new();
+    let mut is_same = |dir: &'w str| -> bool {
+        let Requirements::At(at) = &changed.requirements else {
+            return matches!(changed.requirements, Requirements::Unchanged);
+        };
+        *same_block.entry(dir).or_insert_with(|| {
+            resolve::nearest(&at.blocks, dir, &block.id)
+                .is_some_and(|i| at.fingerprint(i).ok() == now)
+        })
+    };
+    let deleted = changed
+        .targets
+        .iter()
+        .filter(|p| !workspace.targets.contains(*p));
+    Ok(workspace
+        .targets
+        .iter()
+        .chain(deleted)
+        .filter_map(in_scope)
+        .filter(|c| {
+            let newly_targeted = match &changed.requirements {
+                Requirements::At(at) => c.exists && !at.targets.contains(c.path),
+                Requirements::Unchanged | Requirements::Unreadable => false,
+            };
+            changed.all.contains(c.path) || newly_targeted || !is_same(paths::parent(c.path))
+        })
+        .collect())
 }
 
 fn extract_units(
     root: &Path,
     spec: &DecisionSpec,
-    files: &[(&str, &str)],
+    files: &[Candidate],
 ) -> Result<Vec<Unit>, String> {
     let mut units = Vec::new();
-    for (path, relative) in files {
-        let source =
-            fs::read_to_string(root.join(path)).map_err(|e| format!("cannot read {path}: {e}"))?;
-        units.extend(spec.units(path, relative, &source));
+    for file in files {
+        let source = fs::read_to_string(root.join(file.path))
+            .map_err(|e| format!("cannot read {}: {e}", file.path))?;
+        units.extend(spec.units(file.path, file.relative, &source));
     }
     Ok(units)
 }
 
+/// For a requirement taken with `use`, its block and where it was resolved.
+fn provenance(block: &Effective) -> (Option<String>, Option<String>) {
+    match &block.imported {
+        Some(imported) => (Some(block.block()), Some(imported.describe())),
+        None => (None, None),
+    }
+}
+
 fn command_finding(job: &CommandJob, violation: CommandViolation) -> Finding {
+    let (block, source) = provenance(job.block);
     Finding {
-        requirement: job.requirement.id.clone(),
+        requirement: job.block.id.clone(),
         kind: FindingKind::Violation,
         file: violation.file,
         line: violation.line,
@@ -454,6 +598,8 @@ fn command_finding(job: &CommandJob, violation: CommandViolation) -> Finding {
         fix_hint: job.check.fix_hint.clone(),
         probability: None,
         model: None,
+        block,
+        source,
     }
 }
 
@@ -466,7 +612,7 @@ fn judge_decisions(
     let question = job.spec.fingerprint();
     let unit_fields = |unit: &Unit| {
         json!({
-            "requirement": job.requirement.id,
+            "requirement": job.block.id,
             "file": unit.file,
             "line": unit.line,
             "language": unit.language,
@@ -477,7 +623,8 @@ fn judge_decisions(
             "blocking": job.blocking,
         })
     };
-    let id = &job.requirement.id;
+    let id = &job.block.id;
+    let (block, source) = provenance(job.block);
     let mut failures = Vec::new();
     for (unit, answer) in job.units.iter().zip(answers) {
         let judged = match answer {
@@ -520,6 +667,8 @@ fn judge_decisions(
             fix_hint: job.spec.fix_hint.clone(),
             probability: Some(judged.probability),
             model: Some(judged.model),
+            block: block.clone(),
+            source: source.clone(),
         });
     }
     if let Some(first) = failures.first() {
@@ -530,6 +679,7 @@ fn judge_decisions(
                 failures.len(),
                 job.units.len()
             ),
+            blocking: job.blocking,
         });
     }
 }

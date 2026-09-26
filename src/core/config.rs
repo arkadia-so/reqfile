@@ -43,11 +43,21 @@ pub struct DecisionConfig {
     pub concurrency: usize,
 }
 
+impl DecisionConfig {
+    /// Whether the model names one exact version, rather than an alias such
+    /// as `~typesafe/jev-latest` that moves to new releases.
+    pub fn model_is_pinned(&self) -> bool {
+        !self.model.starts_with('~') && !self.model.ends_with("latest")
+    }
+}
+
 /// One config file, every key optional.
 pub struct FolderConfig {
     dir: String,
     base: Option<String>,
     exclude: Option<FileGlob>,
+    /// The `exclude` globs as written, which identify them.
+    exclude_patterns: Vec<String>,
     model: Option<String>,
     api_key_env: Option<String>,
     endpoint: Option<String>,
@@ -61,6 +71,7 @@ pub fn parse(path: &str, text: &str) -> Result<FolderConfig, ConfigError> {
         dir,
         base: None,
         exclude: None,
+        exclude_patterns: Vec::new(),
         model: None,
         api_key_env: None,
         endpoint: None,
@@ -81,11 +92,12 @@ pub fn parse(path: &str, text: &str) -> Result<FolderConfig, ConfigError> {
             .into_iter()
             .map(|n| n.text(path, "exclude"))
             .collect::<Result<Vec<_>, _>>()?;
-        let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
+        let globs: Vec<&str> = patterns.iter().map(String::as_str).collect();
         config.exclude =
-            Some(FileGlob::any(&patterns).map_err(|e| {
+            Some(FileGlob::any(&globs).map_err(|e| {
                 ConfigError::at(path, line, format!("invalid `exclude` glob: {e}"))
             })?);
+        config.exclude_patterns = patterns;
     }
     if let Some(node) = fields.optional("decision") {
         let mut decision = node.fields(
@@ -168,6 +180,44 @@ impl Settings {
                 .nearest(dir, |c| c.concurrency)
                 .unwrap_or(DEFAULT_CONCURRENCY),
         }
+    }
+
+    /// Settings for a single folder, the root, with only Jev settings: how
+    /// `reqfile test` runs a requirement's examples with the settings of its
+    /// folder.
+    pub fn with_decision(decision: &DecisionConfig) -> Self {
+        Self {
+            configs: vec![FolderConfig {
+                dir: String::new(),
+                base: None,
+                exclude: None,
+                exclude_patterns: Vec::new(),
+                model: Some(decision.model.clone()),
+                api_key_env: Some(decision.api_key_env.clone()),
+                endpoint: Some(decision.endpoint.clone()),
+                concurrency: Some(decision.concurrency),
+            }],
+        }
+    }
+
+    /// Identifies what the settings of folder `dir` change in the results
+    /// of its checks: the exclusions of the configs at or above it and, with
+    /// `decision`, how Jev is asked. `base` and `concurrency` change what
+    /// runs or how fast, never a result.
+    pub fn fingerprint(&self, dir: &str, decision: bool) -> String {
+        let mut text = String::new();
+        if decision {
+            let jev = self.decision(dir);
+            text += &format!("{}\n{}\n{}\n", jev.model, jev.api_key_env, jev.endpoint);
+        }
+        for config in self
+            .configs
+            .iter()
+            .filter(|c| paths::contains_dir(&c.dir, dir))
+        {
+            text += &format!("{}:{:?}\n", config.dir, config.exclude_patterns);
+        }
+        super::runlog::fingerprint(&text)
     }
 
     /// A key from the config of `dir` or, if unset there, of its nearest ancestor setting it.

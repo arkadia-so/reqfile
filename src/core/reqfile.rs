@@ -21,9 +21,9 @@ pub fn is_near_miss(path: &str) -> bool {
 /// named `reqfile.yml`.
 pub fn looks_like_reqfile(text: &str) -> bool {
     match yaml::parse("", text).map(|node| node.value) {
-        Ok(Value::Map(entries)) => entries
-            .iter()
-            .any(|(key, _)| matches!(key.name.as_str(), "reqfile" | "product" | "code")),
+        Ok(Value::Map(entries)) => entries.iter().any(|(key, _)| {
+            key.name == "reqfile" || Kind::ALL.iter().any(|k| k.as_str() == key.name)
+        }),
         _ => false,
     }
 }
@@ -32,41 +32,154 @@ pub fn looks_like_reqfile(text: &str) -> bool {
 pub struct Reqfile {
     pub path: String,
     pub dir: String,
-    pub requirements: Vec<Requirement>,
+    /// Ids are unique within a Reqfile.
+    pub blocks: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
     Product,
     Code,
+    Process,
 }
 
 impl Kind {
+    pub const ALL: [Kind; 3] = [Kind::Product, Kind::Code, Kind::Process];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Product => "product",
             Kind::Code => "code",
+            Kind::Process => "process",
+        }
+    }
+
+    /// A product requirement describes its own repository's product, so
+    /// only code and process requirements can be taken by reference.
+    pub fn importable(self) -> bool {
+        self != Kind::Product
+    }
+}
+
+/// One entry of a Reqfile: a definition, or a use block taking its
+/// requirement by reference from another folder or repository.
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub id: String,
+    pub kind: Kind,
+    pub line: usize,
+    /// Required in a definition; in a use block, replaces the definition's.
+    pub why: Option<String>,
+    pub who: Option<String>,
+    /// Required in a definition; in a use block, replaces the definition's
+    /// checks entirely.
+    pub checks: Option<Checks>,
+    pub origin: Origin,
+}
+
+#[derive(Debug, Clone)]
+pub enum Origin {
+    Definition {
+        must: String,
+        reference: Option<String>,
+    },
+    Use(Location),
+}
+
+/// The checks of a block, with their YAML as written, which identifies them.
+#[derive(Debug, Clone)]
+pub struct Checks {
+    pub list: Vec<Check>,
+    pub source: String,
+}
+
+/// Where a use block takes its requirement from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Location {
+    /// A folder, relative to the folder of the Reqfile, as written.
+    Local(String),
+    /// A repository `owner/repo`, pinned to a ref.
+    Git { repo: String, reference: GitRef },
+}
+
+impl Location {
+    pub fn describe(&self) -> String {
+        match self {
+            Location::Local(path) => path.clone(),
+            Location::Git { repo, reference } => format!("{repo}@{}", reference.as_str()),
         }
     }
 }
 
-#[derive(Debug)]
-pub struct Requirement {
-    pub id: String,
-    pub kind: Kind,
-    pub must: String,
-    pub why: String,
-    pub line: usize,
-    pub checks: Vec<Check>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum GitRef {
+    /// A full 40-character commit id.
+    Commit(String),
+    /// A tag, resolved through `refs/tags/<name>`.
+    Tag(String),
 }
 
-#[derive(Debug)]
+impl GitRef {
+    pub fn as_str(&self) -> &str {
+        match self {
+            GitRef::Commit(id) | GitRef::Tag(id) => id,
+        }
+    }
+}
+
+/// Parses `use`: `./folder`, `../folder` or `owner/repo@ref`.
+pub fn parse_location(text: &str) -> Result<Location, String> {
+    if text == "." || text == ".." || text.starts_with("./") || text.starts_with("../") {
+        return Ok(Location::Local(text.to_string()));
+    }
+    let invalid = || {
+        format!(
+            "`use: {text}` must be a folder relative to this Reqfile (./std) or a repository pinned to a tag or commit (owner/repo@v1.0.0)"
+        )
+    };
+    let (repo, reference) = text.split_once('@').ok_or_else(invalid)?;
+    let name = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    match repo.split_once('/') {
+        Some((owner, name_part)) if name(owner) && name(name_part) => {}
+        _ => return Err(invalid()),
+    }
+    Ok(Location::Git {
+        repo: repo.to_string(),
+        reference: parse_ref(reference)?,
+    })
+}
+
+/// A full commit id or a tag name; `HEAD` and short commit ids are rejected
+/// here, and a name that is not a tag (a branch) when it is resolved.
+fn parse_ref(text: &str) -> Result<GitRef, String> {
+    let hex = !text.is_empty() && text.chars().all(|c| c.is_ascii_hexdigit());
+    if text.len() == 40 && hex {
+        Ok(GitRef::Commit(text.to_ascii_lowercase()))
+    } else if text.is_empty() || text == "HEAD" || text.starts_with("refs/") {
+        Err(format!(
+            "`{text}` is not a tag or a full commit id; pin requirements to a tag (v1.0.0) or a 40-character commit id"
+        ))
+    } else if hex && text.len() >= 7 && text.chars().any(|c| c.is_ascii_digit()) {
+        Err(format!(
+            "`{text}` looks like a short commit id; use the full 40-character id so the pin cannot become ambiguous"
+        ))
+    } else {
+        Ok(GitRef::Tag(text.to_string()))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Check {
     Command(CommandCheck),
     Decision(DecisionCheck),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommandCheck {
     pub run: String,
     /// Declared quick enough for `reqfile check --fast`, such as in an edit hook.
@@ -85,7 +198,7 @@ pub enum OutputFormat {
     Sarif,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DecisionCheck {
     pub blocking: bool,
     pub line: usize,
@@ -128,7 +241,11 @@ pub fn parse(path: &str, text: &str) -> Result<Reqfile, ConfigError> {
     if matches!(root.value, Value::Null) {
         return Err(ConfigError::at(path, 1, NO_VERSION));
     }
-    let mut fields = root.fields(path, "the Reqfile", &["reqfile", "product", "code"])?;
+    let mut fields = root.fields(
+        path,
+        "the Reqfile",
+        &["reqfile", "product", "code", "process"],
+    )?;
     let file_line = fields.line;
     let version = fields
         .optional("reqfile")
@@ -144,27 +261,39 @@ pub fn parse(path: &str, text: &str) -> Result<Reqfile, ConfigError> {
             ),
         ));
     }
-    let mut requirements = Vec::new();
-    for kind in [Kind::Product, Kind::Code] {
+    let mut blocks: Vec<Block> = Vec::new();
+    for kind in Kind::ALL {
         if let Some(list) = fields.optional(kind.as_str()) {
             for node in list.list(path, kind.as_str())? {
-                requirements.push(requirement(path, kind, node)?);
+                let block = block(path, kind, node)?;
+                if let Some(first) = blocks.iter().find(|b| b.id == block.id) {
+                    return Err(ConfigError::at(
+                        path,
+                        block.line,
+                        format!(
+                            "requirement id {} appears twice in this Reqfile (first at line {})",
+                            block.id, first.line
+                        ),
+                    ));
+                }
+                blocks.push(block);
             }
         }
     }
     Ok(Reqfile {
         path: path.to_string(),
         dir: paths::parent(path).to_string(),
-        requirements,
+        blocks,
     })
 }
 
-fn requirement(path: &str, kind: Kind, node: Node) -> Result<Requirement, ConfigError> {
+/// A block with `use` is a use block; any other block is a definition.
+fn block(path: &str, kind: Kind, node: Node) -> Result<Block, ConfigError> {
     let line = node.line;
     let mut fields = node.fields(
         path,
         "a requirement",
-        &["id", "ref", "must", "why", "who", "checks"],
+        &["id", "use", "ref", "must", "why", "who", "checks"],
     )?;
     let id = fields.required("id")?;
     let id_line = id.line;
@@ -177,16 +306,76 @@ fn requirement(path: &str, kind: Kind, node: Node) -> Result<Requirement, Config
         ));
     }
     fields.what = format!("requirement {id}");
-    let must = fields.required("must")?.text(path, "must")?;
-    let why = fields.required("why")?.text(path, "why")?;
-    if let Some(who) = fields.optional("who") {
-        who.text(path, "who")?;
-    }
-    if let Some(reference) = fields.optional("ref") {
-        reference.text(path, "ref")?;
-    }
-    let checks_node = fields.required("checks")?;
+    let location = match fields.optional("use") {
+        None => None,
+        Some(node) => {
+            let use_line = node.line;
+            if !kind.importable() {
+                return Err(ConfigError::at(
+                    path,
+                    use_line,
+                    format!(
+                        "requirement {id} is a product requirement, which describes this repository's own product; only code and process requirements can be taken with `use`"
+                    ),
+                ));
+            }
+            let text = node.text(path, "use")?;
+            Some(parse_location(&text).map_err(|e| ConfigError::at(path, use_line, e))?)
+        }
+    };
+    let origin = match location {
+        Some(location) => {
+            for key in ["must", "ref"] {
+                if let Some(node) = fields.optional(key) {
+                    return Err(ConfigError::at(
+                        path,
+                        node.line,
+                        format!(
+                            "requirement {id} is a use block, which takes `{key}` from its definition; remove `{key}`, or remove `use` to define the requirement here"
+                        ),
+                    ));
+                }
+            }
+            Origin::Use(location)
+        }
+        None => {
+            let must = fields.required("must")?.text(path, "must")?;
+            let reference = fields
+                .optional("ref")
+                .map(|r| r.text(path, "ref"))
+                .transpose()?;
+            Origin::Definition { must, reference }
+        }
+    };
+    let definition = matches!(origin, Origin::Definition { .. });
+    let why = match fields.optional("why") {
+        Some(node) => Some(node.text(path, "why")?),
+        None if definition => return Err(fields.missing("why")),
+        None => None,
+    };
+    let who = fields
+        .optional("who")
+        .map(|n| n.text(path, "who"))
+        .transpose()?;
+    let checks = match fields.optional("checks") {
+        Some(node) => Some(checks(path, &id, node)?),
+        None if definition => return Err(fields.missing("checks")),
+        None => None,
+    };
+    Ok(Block {
+        id,
+        kind,
+        line,
+        why,
+        who,
+        checks,
+        origin,
+    })
+}
+
+fn checks(path: &str, id: &str, checks_node: Node) -> Result<Checks, ConfigError> {
     let checks_line = checks_node.line;
+    let source = checks_node.clone().into_json().to_string();
     let mut checks = Vec::new();
     for check_node in checks_node.list(path, "checks")? {
         let check = check(path, check_node)?;
@@ -211,13 +400,9 @@ fn requirement(path: &str, kind: Kind, node: Node) -> Result<Requirement, Config
             ),
         ));
     }
-    Ok(Requirement {
-        id,
-        kind,
-        must,
-        why,
-        line,
-        checks,
+    Ok(Checks {
+        list: checks,
+        source,
     })
 }
 

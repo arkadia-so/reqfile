@@ -1,6 +1,6 @@
 //! OUTPUT: every finding carries the requirement, a message, the fix hint and its location.
 
-use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Reply, Repo, repo, reqfile};
+use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Reply, Repo, remotes, repo, reqfile};
 
 const SARIF: &str = r#"{"runs": [{"results": [{"ruleId": "E722", "message": {"text": "Do not use bare `except`"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "api/handler.py"}, "region": {"startLine": 42}}}]}]}]}"#;
 
@@ -91,6 +91,7 @@ fn json_output_has_the_same_content() {
             "violations": 2,
             "advisory_findings": 2,
             "errors": 1,
+            "advisory_errors": 0,
         })
     );
     assert_eq!(json["exit_code"], 3);
@@ -215,4 +216,46 @@ fn a_finding_names_the_model_that_answered_it() {
     let json = repo.run(&["check", "--format", "json"]).json();
 
     assert_eq!(json["findings"][0]["model"], "typesafe/jev-1.14-20261101");
+}
+
+#[test]
+fn a_finding_of_an_imported_requirement_names_its_block_and_resolved_source() {
+    let remotes = remotes!();
+    let source = remotes.repo("acme/reqs");
+    source.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "NO_TODO",
+            "- command:\n    run: grep -n TODO notes.txt && exit 1 || exit 0\n    fix_hint: Remove the TODO.",
+        )]),
+    );
+    source.commit("define NO_TODO").git(&["tag", "v1"]);
+    let commit = source.head();
+    let repo = repo!();
+    remotes.serve(&repo);
+    repo.write(
+        "app/Reqfile.yaml",
+        "reqfile: 1\ncode:\n  - { id: NO_TODO, use: acme/reqs@v1 }\n",
+    );
+    repo.write("app/notes.txt", "TODO: finish\n");
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains(&format!(
+            "  fix: Remove the TODO.\n  from: app/Reqfile.yaml:3, use acme/reqs@v1 (Reqfile.yaml:3 at commit {commit})\n"
+        )),
+        "{}",
+        run.stdout
+    );
+    let json = repo.run(&["check", "--format", "json"]).json();
+    let finding = &json["findings"][0];
+    assert_eq!(finding["block"], "app/Reqfile.yaml:3");
+    assert_eq!(
+        finding["source"],
+        format!("acme/reqs@v1 (Reqfile.yaml:3 at commit {commit})")
+    );
+    assert_eq!(json["sources"][0]["location"], "acme/reqs@v1");
+    assert_eq!(json["sources"][0]["commit"], commit.as_str());
 }

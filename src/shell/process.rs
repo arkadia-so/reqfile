@@ -11,12 +11,14 @@ use crate::core::command::Outcome;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// Runs `script` with `sh` in `cwd`, `args` appended as arguments. With
-/// `merge_stderr`, stderr is interleaved into stdout.
+/// Runs `script` with `sh` in `cwd`, `args` appended as arguments and `env`
+/// added to the environment. With `merge_stderr`, stderr is interleaved into
+/// stdout.
 pub fn run(
     cwd: &Path,
     script: &str,
     args: &[String],
+    env: &[(&str, &Path)],
     merge_stderr: bool,
     timeout: Duration,
 ) -> Outcome {
@@ -33,6 +35,7 @@ pub fn run(
         .arg(&script)
         .arg("sh")
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

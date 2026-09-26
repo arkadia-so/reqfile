@@ -1,5 +1,6 @@
 //! `reqfile test`: runs each requirement's checks on its labeled examples,
-//! each case alone in a fresh repository.
+//! each case alone in a fresh repository, its files reached only through
+//! `$REQFILE_ASSETS`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,106 +8,112 @@ use std::process::Command;
 
 use super::check;
 use super::workspace::Workspace;
-use crate::core::config::DecisionConfig;
-use crate::core::examples::{self, Outcome, Tested};
+use crate::core::config::Settings;
+use crate::core::examples::{self, Evidence, Outcome, Tested};
 use crate::core::report::Report;
-use crate::core::reqfile::{Check, Reqfile, Requirement};
+use crate::core::reqfile::Check;
+use crate::core::resolve::{self, Assets, Effective};
 
 /// The report and exit code of `reqfile test`, or the errors that prevent it.
 pub fn run(cwd: &Path, only: Option<&[String]>) -> Result<(String, i32), Vec<String>> {
     let workspace = Workspace::load(cwd)?;
-    let requirements: Vec<(&Reqfile, &Requirement)> = workspace
-        .reqfiles
-        .iter()
-        .flat_map(|r| r.requirements.iter().map(move |req| (r, req)))
-        .filter(|(_, req)| only.is_none_or(|ids| ids.contains(&req.id)))
-        .collect();
     if let Some(ids) = only {
         let unknown: Vec<String> = ids
             .iter()
-            .filter(|id| !requirements.iter().any(|(_, r)| &r.id == *id))
+            .filter(|id| !workspace.blocks.iter().any(|b| &b.id == *id))
             .map(|id| format!("--only: no requirement has the id {id}"))
             .collect();
         if !unknown.is_empty() {
             return Err(unknown);
         }
     }
+    let blocks: Vec<&Effective> = workspace
+        .blocks
+        .iter()
+        .filter(|b| only.is_none_or(|ids| ids.contains(&b.id)))
+        .collect();
     let mut tested = Vec::new();
-    for (reqfile, requirement) in requirements {
-        let own = workspace
-            .root
-            .join(&reqfile.dir)
-            .join(".reqfile")
-            .join(&requirement.id);
-        let cases_dir = own.join("examples");
-        if !cases_dir.is_dir() {
-            continue;
-        }
+    for block in &blocks {
         let mut cases = Vec::new();
-        for (name, case) in sorted_dirs(&cases_dir)? {
-            let Some(label) = examples::label(&name) else {
-                return Err(vec![format!(
-                    "{}: an example folder must be named violation-… or ok-…",
-                    case.display()
-                )]);
-            };
-            let jev = workspace.settings.decision(&reqfile.dir);
-            let outcome = run_case(
-                &workspace.root.join(&reqfile.path),
-                &own,
-                &case,
-                requirement,
-                &jev,
-            )
-            .map(|report| examples::outcome(label, &requirement.id, &report))
-            .unwrap_or_else(Outcome::Error);
-            cases.push((name, label, outcome));
+        for examples in example_dirs(&workspace, block) {
+            if !examples.is_dir() {
+                continue;
+            }
+            for (name, case) in sorted_dirs(&examples)? {
+                let Some(label) = examples::label(&name) else {
+                    return Err(vec![format!(
+                        "{}: an example folder must be named violation-… or ok-…",
+                        case.display()
+                    )]);
+                };
+                let outcome = run_case(&workspace, block, &case)
+                    .map(|report| examples::outcome(label, &block.id, &report))
+                    .unwrap_or_else(Outcome::Error);
+                cases.push((name, label, outcome));
+            }
         }
+        let evidence = if cases.is_empty() {
+            Evidence::None
+        } else if block.checks.iter().any(|c| matches!(c, Check::Decision(_))) {
+            Evidence::Measured
+        } else {
+            Evidence::Asserted
+        };
+        let shared = blocks.iter().filter(|b| b.id == block.id).count() > 1;
         tested.push(Tested {
-            id: requirement.id.clone(),
-            measured: requirement
-                .checks
-                .iter()
-                .any(|c| matches!(c, Check::Decision(_))),
+            label: if shared {
+                format!("{} ({})", block.id, block.reqfile)
+            } else {
+                block.id.clone()
+            },
+            evidence,
             cases,
         });
     }
     Ok(examples::render(&tested))
 }
 
-/// Runs a requirement's checks on one case: a fresh repository holding the
-/// case's files, the Reqfile, the requirement's `.reqfile/<ID>/` and the Jev
-/// settings of its folder.
-fn run_case(
-    reqfile: &Path,
-    own: &Path,
-    case: &Path,
-    requirement: &Requirement,
-    jev: &DecisionConfig,
-) -> Result<Report, String> {
+/// The folders holding a block's labeled examples: its definition's, and
+/// for a use block, its own as well.
+fn example_dirs(workspace: &Workspace, block: &Effective) -> Vec<PathBuf> {
+    let own = workspace
+        .root
+        .join(resolve::assets_dir(&block.dir, &block.id))
+        .join("examples");
+    let Some(imported) = &block.imported else {
+        return vec![own];
+    };
+    let definition = match &imported.definition_assets {
+        Assets::Repo(dir) => workspace.root.join(dir),
+        Assets::External(dir) => dir.clone(),
+    }
+    .join("examples");
+    vec![definition, own]
+}
+
+/// Runs a block's checks on one case: a fresh repository holding only the
+/// case's files, checked with the block's effective requirement, its
+/// `$REQFILE_ASSETS` and the Jev settings of its folder.
+fn run_case(workspace: &Workspace, block: &Effective, case: &Path) -> Result<Report, String> {
     let repo = TempRepo::new()?;
-    copy_tree(case, repo.path(), None)?;
-    fs::copy(reqfile, repo.path().join("Reqfile.yaml")).map_err(|e| e.to_string())?;
-    let own_copy = repo.path().join(".reqfile").join(&requirement.id);
-    copy_tree(own, &own_copy, Some("examples"))?;
-    let quote = |s: &str| serde_json::Value::from(s).to_string();
-    let config = format!(
-        "decision:\n  model: {}\n  api_key_env: {}\n  endpoint: {}\n  concurrency: {}\n",
-        quote(&jev.model),
-        quote(&jev.api_key_env),
-        quote(&jev.endpoint),
-        jev.concurrency
-    );
-    fs::write(repo.path().join(".reqfile").join("config.yaml"), config)
-        .map_err(|e| e.to_string())?;
+    copy_tree(case, repo.path())?;
+    let mut in_case = block.clone();
+    in_case.dir = String::new();
+    in_case.assets = Assets::External(workspace.assets_path(block));
+    let settings = Settings::with_decision(&workspace.settings.decision(&block.dir));
+    let root = repo
+        .path()
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve {}: {e}", repo.path().display()))?;
+    let case_workspace = Workspace::for_example(root, settings, in_case)?;
     let options = check::Options {
         changed: None,
-        only: Some(vec![requirement.id.clone()]),
+        only: None,
         fast: false,
         log: None,
         log_tags: Vec::new(),
     };
-    Ok(check::run(repo.path(), &options))
+    Ok(check::run_in(&case_workspace, &options))
 }
 
 /// The subfolders of `dir`, with their names, sorted by name.
@@ -126,15 +133,12 @@ fn sorted_dirs(dir: &Path) -> Result<Vec<(String, PathBuf)>, Vec<String>> {
     Ok(dirs)
 }
 
-/// Copies a folder, leaving out the entry named `skip` at its top level.
-fn copy_tree(from: &Path, to: &Path, skip: Option<&str>) -> Result<(), String> {
+/// Copies a folder.
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     let fail = |e: std::io::Error| format!("cannot copy {}: {e}", from.display());
     fs::create_dir_all(to).map_err(fail)?;
     for entry in fs::read_dir(from).map_err(fail)? {
         let entry = entry.map_err(fail)?;
-        if Some(entry.file_name().to_string_lossy().as_ref()) == skip {
-            continue;
-        }
         let target = to.join(entry.file_name());
         let kind = entry.file_type().map_err(fail)?;
         if kind.is_symlink() {
@@ -143,7 +147,7 @@ fn copy_tree(from: &Path, to: &Path, skip: Option<&str>) -> Result<(), String> {
                 entry.path().display()
             ));
         } else if kind.is_dir() {
-            copy_tree(&entry.path(), &target, None)?;
+            copy_tree(&entry.path(), &target)?;
         } else {
             fs::copy(entry.path(), &target).map_err(fail)?;
         }
