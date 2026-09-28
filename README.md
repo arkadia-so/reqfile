@@ -308,6 +308,7 @@ findings: [test/unit/checkout/discount.test.ts]   # optional: where the checks m
 rationale: The test sits in a mirror tree while its sibling tests are colocated.
 origin: authored                             # or real:<commit>, for a case met in real use
 known: miss                                  # optional: a failure tracked without failing
+split: holdout                               # optional: kept out of tuning, reported apart
 ```
 
 `reqfile eval` puts each case's `files/` alone in a fresh repository and runs
@@ -349,6 +350,36 @@ Each requirement falls in one of three classes:
 
 Violations no check looked at are reported as "not selected", apart from those
 it looked at and missed. A case that cannot run exits 3.
+
+### Improving a check without fitting its examples
+
+A measured check is improved like any model: on evidence it was not tuned on,
+and by more than its noise.
+
+- **Held-out examples.** `split: holdout` (or `reqfile example add
+  --holdout`) keeps an example out of tuning. With any, `reqfile eval`
+  reports the tuning examples and the held-out ones on separate lines. Choose
+  about a third of each class before looking at results, and change a check
+  looking only at tuning failures: a change that raises the tuning rates and
+  not the held-out ones fits its examples, not the requirement, and is
+  reverted.
+- **Noise.** `reqfile eval --repeat N` runs each case N times, lists the
+  cases whose outcome changes, and counts each by its most frequent outcome,
+  a tie against its label. A change improves a check only when it moves more
+  cases than are unstable. An asserted requirement whose outcome changes
+  between runs fails: its checks are not deterministic.
+- **Headroom.** When every example is classified as labeled, the benchmark
+  cannot show that a change helps. Add cases a person judges hard, and say
+  why in `rationale`: near misses on both sides of the `must`, legitimate
+  exceptions, violations spread over several files. Not only those today's
+  check fails: a benchmark of its failures measures its blind spots, not the
+  requirement.
+- **No leaks.** No example's text, names or identifiers go into a command, a
+  decision question or a threshold. Fix the cause a failure reveals, one
+  change at a time, so each change of the rates has one explanation.
+- **Labels first.** Before changing a check for a failing case, reread its
+  label against the `must`: a wrong label is fixed in `example.yaml`, with
+  the reason in `rationale`.
 
 What each step establishes:
 
@@ -395,8 +426,8 @@ endpoint also accepts TypeSafe's own API (`https://api.typesafe.ai/v1`, model
 ```
 reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]...
               [--format summary|json] [--log FILE [--log-tag KEY=VALUE]...]
-reqfile eval [--only ID,...] [--use LOCATION]...
-reqfile example add <ID> <NAME> --expected violation|ok [--finding FILE]... [--rationale TEXT] <FILE>...
+reqfile eval [--only ID,...] [--use LOCATION]... [--repeat N]
+reqfile example add <ID> <NAME> --expected violation|ok [--finding FILE]... [--rationale TEXT] [--holdout] <FILE>...
 reqfile explain <PATH>
 reqfile list [--kind product|code|process] [--format summary|json]
 reqfile add <LOCATION> [ID]... [--dry-run]
@@ -427,8 +458,9 @@ reqfile update [--dry-run]
   its checks and, for a use block, its source; `--format json` gives the same
   as data.
 - `--use` adds the requirements of a location for this run (above).
-- `eval` measures each requirement's checks on its labeled examples (above);
-  `test` is its former name, kept as an alias for one version.
+- `eval` measures each requirement's checks on its labeled examples (above),
+  each case `--repeat N` times; `test` is its former name, kept as an alias
+  for one version.
 - `example add` turns files of the repository into a labeled example (above).
 - `add` writes use blocks pinned to a commit, `update` moves the pins (above).
 

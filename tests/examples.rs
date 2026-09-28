@@ -682,3 +682,156 @@ fn example_add_turns_a_finding_into_a_false_alarm_example_with_the_files_it_need
     ]);
     assert_eq!(finding_on_ok.code, 3, "{}", finding_on_ok.output());
 }
+
+/// Reports each .txt file holding TODO with a probability, so the
+/// requirement is measured rather than asserted.
+fn probable_todo_repo() -> Repo {
+    let repo = repo!();
+    let script = r#"#!/bin/sh
+printf '{"runs":[{"results":['
+sep=''
+for f in "$@"; do
+  if grep -q TODO "$f"; then
+    printf '%s{"message":{"text":"TODO"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"%s"}}}],"properties":{"probability":0.9}}' "$sep" "$f"
+    sep=','
+  fi
+done
+printf ']}]}'
+"#;
+    repo.write(".reqfile/NO_TODO/check.sh", script);
+    std::process::Command::new("chmod")
+        .args(["+x", ".reqfile/NO_TODO/check.sh"])
+        .current_dir(repo.path())
+        .status()
+        .expect("chmod");
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "NO_TODO",
+            &NO_TODO.replace("\n    fix_hint", "\n    format: sarif\n    fix_hint"),
+        )]),
+    );
+    repo
+}
+
+#[test]
+fn held_out_examples_are_measured_apart_from_those_the_checks_were_tuned_on() {
+    let repo = probable_todo_repo();
+    let examples = ".reqfile/NO_TODO/examples";
+    write_case(
+        &repo,
+        &format!("{examples}/violation-todo/notes.txt"),
+        "TODO\n",
+    );
+    write_case(&repo, &format!("{examples}/ok-done/notes.txt"), "done\n");
+    for (case, content, expected) in [
+        ("violation-lowercase", "todo: finish\n", "violation"),
+        ("ok-mentions-todo", "Never write TODO.\n", "ok"),
+    ] {
+        write_case(&repo, &format!("{examples}/{case}/notes.txt"), content);
+        repo.write(
+            &format!("{examples}/{case}/example.yaml"),
+            &format!("expected: {expected}\nsplit: holdout\n"),
+        );
+    }
+
+    let run = repo.run(&["eval"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        run.stdout,
+        "NO_TODO  measured, no assertion\n  tuning: 1 of 1 violations caught (0 missed, 0 not selected, 0 uncertain); 0 of 1 correct examples flagged (0 uncertain)\n  held out: 0 of 1 violations caught (1 missed, 0 not selected, 0 uncertain); 1 of 1 correct examples flagged (0 uncertain)\n  ok-mentions-todo (held out): false alarm\n  violation-lowercase (held out): missed\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 4 examples. 0 failing their labels.\n"
+    );
+}
+
+#[test]
+fn repeat_reruns_each_example_and_reports_the_cases_whose_outcome_changes() {
+    let asked = std::sync::atomic::AtomicUsize::new(0);
+    // A model that changes its mind on every question, probes aside.
+    let jev = FakeJev::start(move |body| {
+        if body["questions"].get("probe").is_some() {
+            return reqfile_test_support::Reply::Probability(0.05);
+        }
+        let n = asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        reqfile_test_support::Reply::Probability(if n.is_multiple_of(2) { 0.95 } else { 0.05 })
+    });
+    let repo = repo!();
+    repo.write("Reqfile.yaml", &reqfile(&[("DECOMPLECT", "- decision")]));
+    repo.write(".reqfile/DECOMPLECT/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write(".reqfile/config.yaml", &jev.config());
+    write_case(
+        &repo,
+        ".reqfile/DECOMPLECT/examples/violation-flaky/a.py",
+        "def f():\n    pass\n",
+    );
+    repo.env("OPENROUTER_API_KEY", "key");
+
+    let run = repo.run(&["eval", "--repeat", "2"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    // A tie counts against the label: noise never reads as a catch.
+    assert_eq!(
+        run.stdout,
+        "DECOMPLECT  measured, no assertion: 0 of 1 violations caught (1 missed, 0 not selected, 0 uncertain); 0 of 0 correct examples flagged (0 uncertain)\n  violation-flaky: unstable over 2 runs: caught 1, missed 1\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 1 examples, 2 runs each, 1 unstable. 0 failing their labels.\n"
+    );
+    assert_eq!(
+        jev.questions_received().len(),
+        2,
+        "each run asks the model again rather than reading a cached answer"
+    );
+}
+
+#[test]
+fn an_asserted_check_whose_outcome_changes_between_runs_fails() {
+    let repo = no_todo_repo();
+    // Flags TODO on odd runs only, counting runs in its assets folder.
+    repo.write(
+        ".reqfile/NO_TODO/check.sh",
+        "#!/bin/sh\nn=$(cat \"$REQFILE_ASSETS/runs\" 2>/dev/null || echo 0)\necho $((n + 1)) > \"$REQFILE_ASSETS/runs\"\nif [ $((n % 2)) -eq 0 ] && grep -l TODO \"$@\"; then exit 1; fi\n",
+    );
+    write_case(
+        &repo,
+        ".reqfile/NO_TODO/examples/violation-todo/notes.txt",
+        "TODO\n",
+    );
+
+    let once = repo.run(&["eval"]);
+    repo.remove(".reqfile/NO_TODO/runs");
+    let twice = repo.run(&["eval", "--repeat", "2"]);
+
+    assert_eq!(once.code, 0, "{}", once.output());
+    assert_eq!(twice.code, 1, "{}", twice.output());
+    assert!(
+        twice.stdout.contains(
+            "NO_TODO  asserted: 1 examples, 0 as labeled\n  violation-todo: unstable over 2 runs: caught 1, missed 1\n"
+        ),
+        "{}",
+        twice.stdout
+    );
+}
+
+#[test]
+fn example_add_holdout_keeps_the_example_out_of_tuning() {
+    let repo = no_todo_repo();
+    repo.write("docs/plan.txt", "TODO\n");
+    repo.commit("real code");
+
+    let run = repo.run(&[
+        "example",
+        "add",
+        "NO_TODO",
+        "plan",
+        "--expected",
+        "violation",
+        "--holdout",
+        "docs",
+    ]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    let yaml = std::fs::read_to_string(
+        repo.path()
+            .join(".reqfile/NO_TODO/examples/plan/example.yaml"),
+    )
+    .expect("example.yaml");
+    assert!(yaml.ends_with("split: holdout\n"), "{yaml}");
+}

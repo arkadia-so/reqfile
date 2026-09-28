@@ -87,6 +87,10 @@ enum Command {
         /// adopting them, as `check --use` does.
         #[arg(long = "use", value_name = "LOCATION")]
         uses: Vec<String>,
+        /// Run each example N times and report the cases whose outcome
+        /// changes, the noise a change to the checks must exceed.
+        #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..))]
+        repeat: u16,
     },
     /// Manage a requirement's labeled examples.
     Example {
@@ -113,6 +117,10 @@ enum ExampleCommand {
         /// Why the example has its label.
         #[arg(long)]
         rationale: Option<String>,
+        /// Keep the example out of tuning (`split: holdout`): `reqfile eval`
+        /// reports its rates apart, to show whether a change generalizes.
+        #[arg(long)]
+        holdout: bool,
         /// The files and folders the checks need to judge the case.
         #[arg(required = true)]
         files: Vec<PathBuf>,
@@ -185,6 +193,7 @@ fn main() -> ExitCode {
                     expected,
                     findings,
                     rationale,
+                    holdout,
                     files,
                 },
         } => {
@@ -196,6 +205,7 @@ fn main() -> ExitCode {
                     violation: matches!(expected, ExpectedArg::Violation),
                     findings,
                     rationale,
+                    holdout,
                     files,
                 },
             );
@@ -212,18 +222,20 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Eval { only, uses } => match shell::examples::run(&cwd, only.as_deref(), &uses) {
-            Ok((text, code)) => match emit(&text) {
-                Ok(()) => ExitCode::from(code as u8),
-                Err(()) => ExitCode::from(EXIT_ERROR as u8),
-            },
-            Err(errors) => {
-                for error in errors {
-                    eprintln!("error: {error}");
+        Command::Eval { only, uses, repeat } => {
+            match shell::examples::run(&cwd, only.as_deref(), &uses, repeat.into()) {
+                Ok((text, code)) => match emit(&text) {
+                    Ok(()) => ExitCode::from(code as u8),
+                    Err(()) => ExitCode::from(EXIT_ERROR as u8),
+                },
+                Err(errors) => {
+                    for error in errors {
+                        eprintln!("error: {error}");
+                    }
+                    ExitCode::from(EXIT_ERROR as u8)
                 }
-                ExitCode::from(EXIT_ERROR as u8)
             }
-        },
+        }
         Command::Explain { path } => match shell::explain::run(&cwd, &path) {
             Ok(text) => match emit(&text) {
                 Ok(()) => ExitCode::SUCCESS,

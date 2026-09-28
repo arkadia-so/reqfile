@@ -106,8 +106,8 @@ product:
           fix_hint: Make the failing tests in tests/explain.rs and tests/list.rs pass.
 
   - id: EVALS
-    must: "`reqfile eval` measures each requirement's checks on its labeled examples, and every miss or false alarm met in real use can be added as a new example, so checks become more precise over time and a measurement is never presented as a verification."
-    why: Checks only approximate requirements, and the gap closes only when their failures become evidence; examples keep their label outside the files checks see, so a check cannot read its answer, name the expected findings, so flagging the wrong file counts as a miss, and double as the requirement's documentation.
+    must: "`reqfile eval` measures each requirement's checks on its labeled examples, apart on examples held out of tuning and over repeated runs, and every miss or false alarm met in real use can be added as a new example, so checks become more precise over time and a measurement is never presented as a verification."
+    why: Checks only approximate requirements, and the gap closes only when their failures become evidence; examples keep their label outside the files checks see, so a check cannot read its answer, name the expected findings, so flagging the wrong file counts as a miss, and double as the requirement's documentation; held-out examples and repeated runs tell a real improvement from one that fits the tuning examples or the noise.
     who: Reqfile authors; anyone adopting a requirement.
     checks:
       - command:
