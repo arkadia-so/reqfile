@@ -330,7 +330,7 @@ missed or a false alarm until the check is improved.
 
 ```
 UNUSED_CODE  asserted: 2 examples, 2 as labeled
-FAIL_FAST  measured, no assertion: 3 of 4 violations caught (1 missed, 0 not selected, 0 uncertain); 0 of 2 correct examples flagged (0 uncertain)
+FAIL_FAST  measured, no assertion: 3 of 4 violations caught (95% interval 30 to 95%; 1 missed, 0 not selected, 0 uncertain); 0 of 2 correct examples flagged (95% interval 0 to 66%; 0 uncertain)
   rust-ok-discard: missed
 SIMULATION  no evidence: no labeled examples
 
@@ -349,7 +349,11 @@ Each requirement falls in one of three classes:
 - **no evidence**: no labeled examples, so nothing is known about its checks.
 
 Violations no check looked at are reported as "not selected", apart from those
-it looked at and missed. A case that cannot run exits 3.
+it looked at and missed. Each rate of a measured requirement comes with its 95%
+Wilson interval: on a few examples it is wide, and two rates whose intervals
+overlap are not evidence of a difference. A requirement whose examples hold one
+class only is reported as measuring half of its checks. A case that cannot run
+exits 3.
 
 ### Improving a check without fitting its examples
 
@@ -365,9 +369,18 @@ and by more than its noise.
   reverted.
 - **Noise.** `reqfile eval --repeat N` runs each case N times, lists the
   cases whose outcome changes, and counts each by its most frequent outcome,
-  a tie against its label. A change improves a check only when it moves more
-  cases than are unstable. An asserted requirement whose outcome changes
-  between runs fails: its checks are not deterministic.
+  a tie against its label; 3 to 5 runs are enough to see it. A change
+  improves a check only when it moves more cases than are unstable. An
+  asserted requirement whose outcome changes between runs fails: its checks
+  are not deterministic. Repetition does not reveal a mistake a model makes
+  every time; its probability does.
+- **Uncertainty is the review queue.** A decision check's probability says
+  where it is unsure, in one call: findings between `pass_below` and
+  `violation_above` are reported as uncertain. Those, in `reqfile check`
+  output or its `--log`, are the cases worth a person's label; `reqfile
+  example add` turns them into examples.
+- **Thresholds.** Choose `thresholds` on the tuning examples and confirm them
+  on the held-out ones, even when both classes are balanced.
 - **Headroom.** When every example is classified as labeled, the benchmark
   cannot show that a change helps. Add cases a person judges hard, and say
   why in `rationale`: near misses on both sides of the `must`, legitimate
@@ -378,8 +391,8 @@ and by more than its noise.
   decision question or a threshold. Fix the cause a failure reveals, one
   change at a time, so each change of the rates has one explanation.
 - **Labels first.** Before changing a check for a failing case, reread its
-  label against the `must`: a wrong label is fixed in `example.yaml`, with
-  the reason in `rationale`.
+  label against the `must`, above all when the check was confident: a wrong
+  label is fixed in `example.yaml`, with the reason in `rationale`.
 
 What each step establishes:
 

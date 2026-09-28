@@ -387,6 +387,14 @@ impl Tested {
             }
         };
         out.extend(self.cases.iter().filter_map(Case::render));
+        // Examples of one class only measure half of what a check does.
+        let has = |label: Label| self.cases.iter().any(|c| c.label == label);
+        if has(Label::Violation) && !has(Label::Ok) {
+            out += "  no correct examples: false alarms are not measured\n";
+        }
+        if has(Label::Ok) && !has(Label::Violation) {
+            out += "  no violation examples: catches are not measured\n";
+        }
         out
     }
 }
@@ -401,19 +409,41 @@ fn rates(cases: &[&Case]) -> String {
             .count()
     };
     let total = |label: Label| cases.iter().filter(|c| c.label == label).count();
+    let caught = count(Label::Violation, |o| *o == Outcome::Caught);
+    let flagged = count(Label::Ok, |o| *o == Outcome::FalseAlarm);
     format!(
-        "{} of {} violations caught ({} missed, {} not selected, {} uncertain); {} of {} correct examples flagged ({} uncertain)",
-        count(Label::Violation, |o| *o == Outcome::Caught),
+        "{caught} of {} violations caught ({}{} missed, {} not selected, {} uncertain); {flagged} of {} correct examples flagged ({}{} uncertain)",
         total(Label::Violation),
+        interval(caught, total(Label::Violation)),
         count(Label::Violation, |o| matches!(
             o,
             Outcome::Missed | Outcome::WrongFile(_)
         )),
         count(Label::Violation, |o| *o == Outcome::NotSelected),
         count(Label::Violation, |o| *o == Outcome::Uncertain),
-        count(Label::Ok, |o| *o == Outcome::FalseAlarm),
         total(Label::Ok),
+        interval(flagged, total(Label::Ok)),
         count(Label::Ok, |o| *o == Outcome::Uncertain),
+    )
+}
+
+/// The 95% Wilson interval of a rate of `k` in `n`, as `95% interval 41 to
+/// 93%; `, or nothing without cases: a handful of examples says little, and a
+/// change to the checks that stays inside it may be chance.
+fn interval(k: usize, n: usize) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let (k, n) = (k as f64, n as f64);
+    let z2 = 1.96_f64 * 1.96;
+    let rate = k / n;
+    let center = (rate + z2 / (2.0 * n)) / (1.0 + z2 / n);
+    let half = (z2 * (rate * (1.0 - rate) / n + z2 / (4.0 * n * n))).sqrt() / (1.0 + z2 / n);
+    let percent = |x: f64| (x.clamp(0.0, 1.0) * 100.0).round();
+    format!(
+        "95% interval {} to {}%; ",
+        percent(center - half),
+        percent(center + half)
     )
 }
 

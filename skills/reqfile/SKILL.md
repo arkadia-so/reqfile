@@ -205,9 +205,10 @@ To improve a measured check without fitting its examples:
    and held-out rates apart. Change the check looking only at tuning failures.
 2. Measure the noise: `reqfile eval --only ID --repeat 3` lists the cases whose
    outcome changes between runs. A change counts only if it moves more cases
-   than are unstable.
-3. When a case fails, first reread its label against the `must`; fix a wrong
-   label rather than the check.
+   than are unstable, and beyond the 95% intervals `reqfile eval` prints.
+3. When a case fails, first reread its label against the `must`, above all
+   when the check was confident; fix a wrong label rather than the check.
+   Choose `thresholds` on tuning examples and confirm them on held-out ones.
 4. Make one change per round, aimed at the cause, and rerun. Revert a change
    that raises the tuning rates but not the held-out ones. Never copy an
    example's text, names or identifiers into a command, question or threshold.
@@ -215,7 +216,10 @@ To improve a measured check without fitting its examples:
 
 Choose new examples because a person judges them hard, and say why in
 `rationale` (near misses on both sides of the `must`, legitimate exceptions),
-not only because today's check fails them. When every example is classified as
+not only because today's check fails them. Uncertain findings of `reqfile
+check` are where a decision check doubts: have a person label them and add them
+with `reqfile example add`. Keep both classes: without correct examples, false
+alarms are not measured. When every example is classified as
 labeled, the benchmark has no headroom left: add harder cases.
 
 `reqfile check --log FILE` records findings and judged source for investigation.

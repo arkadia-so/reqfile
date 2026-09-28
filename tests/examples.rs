@@ -160,7 +160,7 @@ fn decision_checks_are_measured_rather_than_asserted() {
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
         run.stdout.contains(
-            "DECOMPLECT  measured, no assertion: 1 of 4 violations caught (1 missed, 1 not selected, 1 uncertain); 1 of 2 correct examples flagged (0 uncertain)\n"
+            "DECOMPLECT  measured, no assertion: 1 of 4 violations caught (95% interval 5 to 70%; 1 missed, 1 not selected, 1 uncertain); 1 of 2 correct examples flagged (95% interval 9 to 91%; 0 uncertain)\n"
         ),
         "{}",
         run.stdout
@@ -302,7 +302,7 @@ fn a_decision_requirement_with_every_example_missed_is_reported_as_measured() {
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
         run.stdout.starts_with(
-            "DECOMPLECT  measured, no assertion: 0 of 3 violations caught (3 missed, 0 not selected, 0 uncertain)"
+            "DECOMPLECT  measured, no assertion: 0 of 3 violations caught (95% interval 0 to 56%; 3 missed, 0 not selected, 0 uncertain)"
         ),
         "{}",
         run.stdout
@@ -566,7 +566,7 @@ fn command_checks_reporting_probabilities_are_measured_not_asserted() {
     // A false alarm of a probabilistic check is measured, never failing.
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
-        run.stdout.contains("GUESS  measured, no assertion: 0 of 0 violations caught (0 missed, 0 not selected, 0 uncertain); 1 of 1 correct examples flagged (0 uncertain)\n"),
+        run.stdout.contains("GUESS  measured, no assertion: 0 of 0 violations caught (0 missed, 0 not selected, 0 uncertain); 1 of 1 correct examples flagged (95% interval 21 to 100%; 0 uncertain)\n  ok-flagged: false alarm\n  no violation examples: catches are not measured\n"),
         "{}",
         run.stdout
     );
@@ -740,7 +740,7 @@ fn held_out_examples_are_measured_apart_from_those_the_checks_were_tuned_on() {
     assert_eq!(run.code, 0, "{}", run.output());
     assert_eq!(
         run.stdout,
-        "NO_TODO  measured, no assertion\n  tuning: 1 of 1 violations caught (0 missed, 0 not selected, 0 uncertain); 0 of 1 correct examples flagged (0 uncertain)\n  held out: 0 of 1 violations caught (1 missed, 0 not selected, 0 uncertain); 1 of 1 correct examples flagged (0 uncertain)\n  ok-mentions-todo (held out): false alarm\n  violation-lowercase (held out): missed\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 4 examples. 0 failing their labels.\n"
+        "NO_TODO  measured, no assertion\n  tuning: 1 of 1 violations caught (95% interval 21 to 100%; 0 missed, 0 not selected, 0 uncertain); 0 of 1 correct examples flagged (95% interval 0 to 79%; 0 uncertain)\n  held out: 0 of 1 violations caught (95% interval 0 to 79%; 1 missed, 0 not selected, 0 uncertain); 1 of 1 correct examples flagged (95% interval 21 to 100%; 0 uncertain)\n  ok-mentions-todo (held out): false alarm\n  violation-lowercase (held out): missed\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 4 examples. 0 failing their labels.\n"
     );
 }
 
@@ -772,7 +772,7 @@ fn repeat_reruns_each_example_and_reports_the_cases_whose_outcome_changes() {
     // A tie counts against the label: noise never reads as a catch.
     assert_eq!(
         run.stdout,
-        "DECOMPLECT  measured, no assertion: 0 of 1 violations caught (1 missed, 0 not selected, 0 uncertain); 0 of 0 correct examples flagged (0 uncertain)\n  violation-flaky: unstable over 2 runs: caught 1, missed 1\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 1 examples, 2 runs each, 1 unstable. 0 failing their labels.\n"
+        "DECOMPLECT  measured, no assertion: 0 of 1 violations caught (95% interval 0 to 79%; 1 missed, 0 not selected, 0 uncertain); 0 of 0 correct examples flagged (0 uncertain)\n  violation-flaky: unstable over 2 runs: caught 1, missed 1\n  no correct examples: false alarms are not measured\n\n1 requirements: 0 asserted, 1 measured, 0 without evidence; 1 examples, 2 runs each, 1 unstable. 0 failing their labels.\n"
     );
     assert_eq!(
         jev.questions_received().len(),
