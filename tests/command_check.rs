@@ -1,4 +1,5 @@
-//! COMMAND_CHECK: shell commands, their files, exit codes, SARIF output and timeouts.
+//! COMMAND_CHECK: shell commands, their files, exit codes, SARIF output with probabilities,
+//! JUnit reports and timeouts.
 
 use std::time::{Duration, Instant};
 
@@ -395,7 +396,7 @@ fn invalid_command_fields_are_config_errors() {
         ),
         (
             "    run: x\n    format: json",
-            "unknown format `json`; expected `exit` or `sarif`",
+            "unknown format `json`; expected `exit`, `sarif` or `junit`",
         ),
         (
             "    run: x\n    violation_codes: [0]",
@@ -472,6 +473,206 @@ fn commands_run_the_same_reqfile_through_reqfile() {
     assert!(
         run.stdout
             .contains(&format!("RULE  reqfile {}\n", env!("CARGO_PKG_VERSION"))),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Runs a SARIF check whose results each have a message, a file and,
+/// when given, a probability and kind; `extra` adds check fields.
+fn sarif_check(results: &[(&str, Option<f64>, &str)], extra: &str) -> reqfile_test_support::Run {
+    let repo = repo!();
+    let results: Vec<serde_json::Value> = results
+        .iter()
+        .map(|(text, probability, kind)| {
+            let mut result = json!({
+                "kind": kind,
+                "message": { "text": text },
+                "locations": [{ "physicalLocation": {
+                    "artifactLocation": { "uri": "a.txt" },
+                    "region": { "startLine": 3 }
+                }}],
+            });
+            if let Some(p) = probability {
+                result["properties"] = json!({ "probability": p });
+            }
+            result
+        })
+        .collect();
+    repo.write(
+        "result.sarif",
+        &json!({ "runs": [{ "results": results }] }).to_string(),
+    );
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "RULE",
+            &format!(
+                "- command:\n    run: cat result.sarif\n    format: sarif\n    fix_hint: Fix it.\n{extra}"
+            ),
+        )]),
+    );
+    repo.write("a.txt", "");
+    repo.run(&["check"])
+}
+
+#[test]
+fn sarif_probability_above_violation_above_is_a_violation() {
+    let run = sarif_check(&[("likely", Some(0.9), "fail")], "");
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains("RULE  a.txt:3  p=0.90  likely\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn sarif_probability_between_thresholds_is_an_uncertain_advisory_finding() {
+    let run = sarif_check(&[("maybe", Some(0.5), "fail")], "");
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("uncertain  RULE  a.txt:3  p=0.50  maybe\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn sarif_probability_below_pass_below_passes_whatever_the_kind() {
+    let run = sarif_check(&[("unlikely", Some(0.1), "fail")], "");
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(!run.stdout.contains("unlikely"), "{}", run.stdout);
+}
+
+#[test]
+fn sarif_pass_results_are_judged_by_their_probability() {
+    // A checker reports every file it judged; only doubtful ones are findings.
+    let run = sarif_check(
+        &[
+            ("fine", Some(0.05), "pass"),
+            ("doubtful", Some(0.6), "pass"),
+        ],
+        "",
+    );
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(!run.stdout.contains("fine"), "{}", run.stdout);
+    assert!(
+        run.stdout
+            .contains("uncertain  RULE  a.txt:3  p=0.60  doubtful"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn sarif_result_without_probability_is_a_certain_violation() {
+    let run = sarif_check(&[("certain", None, "fail")], "");
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains("RULE  a.txt:3  certain\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn probability_outside_zero_one_is_a_tool_error() {
+    let run = sarif_check(&[("odd", Some(1.5), "fail")], "");
+    assert_eq!(run.code, 3, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("a SARIF result has probability 1.5, outside 0 to 1"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn command_thresholds_default_to_0_8_and_0_2_and_can_be_set_per_check() {
+    let default = sarif_check(&[("seventy", Some(0.7), "fail")], "");
+    assert!(
+        default.stdout.contains("uncertain  RULE"),
+        "{}",
+        default.stdout
+    );
+
+    let set = sarif_check(
+        &[("seventy", Some(0.7), "fail")],
+        "    thresholds: { violation_above: 0.6 }\n",
+    );
+    assert_eq!(set.code, 1, "{}", set.output());
+    assert!(
+        set.stdout.contains("RULE  a.txt:3  p=0.70  seventy"),
+        "{}",
+        set.stdout
+    );
+
+    let invalid = sarif_check(
+        &[("x", Some(0.7), "fail")],
+        "    thresholds: { violation_above: 0.2, pass_below: 0.5 }\n",
+    );
+    assert_eq!(invalid.code, 3, "{}", invalid.output());
+    assert!(
+        invalid
+            .stdout
+            .contains("thresholds must satisfy 0 <= pass_below <= violation_above <= 1"),
+        "{}",
+        invalid.stdout
+    );
+}
+
+const JUNIT: &str = r#"<testsuites><testsuite name="output">
+<testcase classname="output" name="passes"/>
+<testcase classname="output" name="names_conflicts" file="tests/output.rs" line="12"><failure message="assertion failed: breaks"/></testcase>
+</testsuite></testsuites>"#;
+
+fn junit_check(report: &str, run: &str) -> reqfile_test_support::Run {
+    let repo = repo!();
+    repo.write("junit.xml", report);
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "OUTPUT",
+            &format!("- command:\n    run: {run}\n    format: junit\n    fix_hint: Make the failing test pass."),
+        )]),
+    );
+    repo.run(&["check"])
+}
+
+#[test]
+fn junit_failures_become_findings_named_after_their_test() {
+    let run = junit_check(JUNIT, "cat junit.xml; exit 1");
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains(
+            "OUTPUT  tests/output.rs:12  test output::names_conflicts failed: assertion failed: breaks\n  fix: Make the failing test pass.\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("passes"), "{}", run.stdout);
+}
+
+#[test]
+fn junit_violation_code_without_failures_is_a_tool_error() {
+    let report = r#"<testsuite name="s"><testcase name="passes"/></testsuite>"#;
+    let run = junit_check(report, "cat junit.xml; exit 1");
+    assert_eq!(run.code, 3, "{}", run.output());
+    assert!(
+        run.stdout.contains("lists no failed test"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn junit_report_without_any_test_is_a_tool_error() {
+    let run = junit_check(r#"<testsuites/>"#, "cat junit.xml");
+    assert_eq!(run.code, 3, "{}", run.output());
+    assert!(
+        run.stdout.contains("the JUnit report lists no test"),
         "{}",
         run.stdout
     );

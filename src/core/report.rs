@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use super::conflict::{self, Conflict, Decision};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FindingKind {
@@ -32,6 +34,10 @@ pub struct Finding {
     /// For a requirement taken with `use`, where its definition was resolved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Other requirements the fix would break: a product decision to make,
+    /// not a fix for an agent to try.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<Conflict>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +85,11 @@ pub struct Summary {
     pub errors: usize,
     /// Errors of advisory checks, counted in `errors`, which leave the exit code unchanged.
     pub advisory_errors: usize,
+    /// Pairs of requirements that cannot both hold on some files.
+    pub decisions: usize,
+    /// Why conflicts between requirements were not looked for, if they were not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflicts_not_checked: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -90,6 +101,8 @@ pub struct Report {
     pub checks_with_nothing_to_check: usize,
     pub checks_left_for_full_run: usize,
     pub units_judged: Option<usize>,
+    /// Why conflicts between requirements were not looked for, if they were not.
+    pub conflicts_not_checked: Option<String>,
 }
 
 pub const EXIT_PASS: i32 = 0;
@@ -122,7 +135,15 @@ impl Report {
             advisory_findings: self.findings.len() - violations,
             errors: self.errors.len(),
             advisory_errors: self.errors.iter().filter(|e| !e.blocking).count(),
+            decisions: self.decisions().len(),
+            conflicts_not_checked: self.conflicts_not_checked.clone(),
         }
+    }
+
+    /// The pairs of requirements whose findings cannot be fixed without
+    /// breaking the other one.
+    pub fn decisions(&self) -> Vec<Decision> {
+        conflict::decisions(&self.findings)
     }
 
     /// 3 on any blocking error, which takes precedence; 1 on blocking
@@ -163,9 +184,30 @@ impl Report {
                 out += &format!("    {line}\n");
             }
             out += &format!("  fix: {}\n", finding.fix_hint);
+            if !finding.conflicts.is_empty() {
+                let list: Vec<String> = finding
+                    .conflicts
+                    .iter()
+                    .map(|c| format!("{} (p={:.2})", c.requirement, c.probability))
+                    .collect();
+                out += &format!("  breaks: {}\n", list.join(", "));
+            }
             if let (Some(block), Some(source)) = (&finding.block, &finding.source) {
                 out += &format!("  from: {block}, use {source}\n");
             }
+        }
+        for decision in self.decisions() {
+            let files = decision.files.len();
+            out += &format!(
+                "decide  {} vs {}  p={:.2}  fixing {} in {} would break {}\n    {}\n    Reword one of the two requirements, or say which one wins where they meet.\n",
+                decision.requirement,
+                decision.breaks,
+                decision.probability,
+                decision.requirement,
+                plural(files, "file", "files"),
+                decision.breaks,
+                decision.files.join(", "),
+            );
         }
         for error in &self.errors {
             let (first, rest) = split_first_line(&error.message);
@@ -221,6 +263,15 @@ impl Report {
             plural(s.advisory_findings, "advisory finding", "advisory findings"),
             plural(s.errors, "error", "errors"),
         );
+        if s.decisions > 0 {
+            out += &format!(
+                "{} to make between requirements that cannot both hold.\n",
+                plural(s.decisions, "decision", "decisions")
+            );
+        }
+        if let Some(reason) = &s.conflicts_not_checked {
+            out += &format!("Conflicts between requirements not checked: {reason}.\n");
+        }
         out
     }
 

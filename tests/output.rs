@@ -1,4 +1,5 @@
-//! OUTPUT: every finding carries the requirement, a message, the fix hint and its location.
+//! OUTPUT: every finding carries the requirement, a message, the fix hint and its location,
+//! and names the other requirements its fix would break.
 
 use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Reply, Repo, remotes, repo, reqfile};
 
@@ -92,6 +93,7 @@ fn json_output_has_the_same_content() {
             "advisory_findings": 2,
             "errors": 1,
             "advisory_errors": 0,
+            "decisions": 0,
         })
     );
     assert_eq!(json["exit_code"], 3);
@@ -229,13 +231,13 @@ fn a_finding_of_an_imported_requirement_names_its_block_and_resolved_source() {
             "- command:\n    run: grep -n TODO notes.txt && exit 1 || exit 0\n    fix_hint: Remove the TODO.",
         )]),
     );
-    source.commit("define NO_TODO").git(&["tag", "v1"]);
+    source.commit("define NO_TODO");
     let commit = source.head();
     let repo = repo!();
     remotes.serve(&repo);
     repo.write(
         "app/Reqfile.yaml",
-        "reqfile: 1\ncode:\n  - { id: NO_TODO, use: acme/reqs@v1 }\n",
+        &format!("reqfile: 1\ncode:\n  - {{ id: NO_TODO, use: acme/reqs@{commit} }}  # v1\n"),
     );
     repo.write("app/notes.txt", "TODO: finish\n");
 
@@ -244,7 +246,7 @@ fn a_finding_of_an_imported_requirement_names_its_block_and_resolved_source() {
     assert_eq!(run.code, 1, "{}", run.output());
     assert!(
         run.stdout.contains(&format!(
-            "  fix: Remove the TODO.\n  from: app/Reqfile.yaml:3, use acme/reqs@v1 (Reqfile.yaml:3 at commit {commit})\n"
+            "  fix: Remove the TODO.\n  from: app/Reqfile.yaml:3, use acme/reqs@{commit} (Reqfile.yaml:3 at commit {commit})\n"
         )),
         "{}",
         run.stdout
@@ -254,8 +256,211 @@ fn a_finding_of_an_imported_requirement_names_its_block_and_resolved_source() {
     assert_eq!(finding["block"], "app/Reqfile.yaml:3");
     assert_eq!(
         finding["source"],
-        format!("acme/reqs@v1 (Reqfile.yaml:3 at commit {commit})")
+        format!("acme/reqs@{commit} (Reqfile.yaml:3 at commit {commit})")
     );
-    assert_eq!(json["sources"][0]["location"], "acme/reqs@v1");
-    assert_eq!(json["sources"][0]["commit"], commit.as_str());
+    // A commit pin says what it is: no source line to report.
+    assert!(json.get("sources").is_none(), "{json}");
+}
+
+/// A SARIF check flagging `files`, a requirement its fix breaks (its must
+/// holds `CORE_MARK`) and one it does not; Jev answers by question id.
+fn conflict_repo(jev: &FakeJev, files: &[&str]) -> Repo {
+    let repo = repo!();
+    let results: Vec<String> = files
+        .iter()
+        .map(|f| format!(r#"{{"ruleId": "C", "message": {{"text": "{f} has one user elsewhere"}}, "locations": [{{"physicalLocation": {{"artifactLocation": {{"uri": "{f}"}}, "region": {{"startLine": 1}}}}}}]}}"#))
+        .collect();
+    repo.write(
+        "result.sarif",
+        &format!(r#"{{"runs": [{{"results": [{}]}}]}}"#, results.join(", ")),
+    );
+    let block = |id: &str, must: &str, run: &str, format: &str, fix: &str| {
+        format!(
+            "  - id: {id}\n    must: {must}\n    why: A reason.\n    checks:\n      - command:\n          run: {run}\n{format}          fix_hint: {fix}\n"
+        )
+    };
+    repo.write(
+        "Reqfile.yaml",
+        &format!(
+            "reqfile: 1\ncode:\n{}{}{}",
+            block(
+                "COLOCATION",
+                "Code lives next to its users.",
+                "cat result.sarif; exit 1",
+                "          format: sarif\n",
+                "Move the file next to its only user.",
+            ),
+            block(
+                "CORE",
+                "State machines live under core/. CORE_MARK",
+                "\"true\"",
+                "",
+                "None."
+            ),
+            block(
+                "DOCS",
+                "Every module has a doc comment.",
+                "\"true\"",
+                "",
+                "None."
+            ),
+        ),
+    );
+    for file in files {
+        repo.write(file, "pub fn step() {}\n");
+    }
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.env("OPENROUTER_API_KEY", "key");
+    repo
+}
+
+fn conflict_jev() -> FakeJev {
+    FakeJev::start(|_| Reply::ByQuestion(vec![("CORE", 0.9), ("DOCS", 0.1)]))
+}
+
+#[test]
+fn finding_whose_fix_would_break_another_requirement_names_it() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/cache.rs"]);
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains(
+            "COLOCATION  core/cache.rs:1  core/cache.rs has one user elsewhere (C)\n  fix: Move the file next to its only user.\n  breaks: CORE (p=0.90)\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("DOCS (p="), "{}", run.stdout);
+    let asked = jev.conflicts_received();
+    assert_eq!(asked.len(), 1, "one request per finding");
+    let questions = asked[0].body["questions"].as_object().expect("questions");
+    assert_eq!(questions.len(), 2, "every other requirement that applies");
+    assert!(
+        questions["CORE"]["instructions"]["question"]
+            .as_str()
+            .is_some_and(|q| q.contains("CORE_MARK")),
+        "{questions:?}"
+    );
+    assert_eq!(
+        asked[0].body["state"]["finding"]["requirement"],
+        "COLOCATION"
+    );
+    assert_eq!(asked[0].body["state"]["source"], "pub fn step() {}\n");
+}
+
+#[test]
+fn conflicts_are_grouped_by_requirement_pair_as_decisions_to_make() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/a.rs", "core/b.rs"]);
+
+    let run = repo.run(&["check"]);
+
+    assert!(
+        run.stdout.contains(
+            "decide  COLOCATION vs CORE  p=0.90  fixing COLOCATION in 2 files would break CORE\n    core/a.rs, core/b.rs\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .ends_with("1 decision to make between requirements that cannot both hold.\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn conflicting_findings_are_marked_in_json_so_hooks_route_them_to_a_human() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/cache.rs"]);
+
+    let run = repo.run(&["check", "--format", "json"]);
+
+    // A conflict informs; the exit code still says the check failed.
+    assert_eq!(run.code, 1, "{}", run.output());
+    let json = run.json();
+    assert_eq!(
+        json["findings"][0]["conflicts"],
+        serde_json::json!([{ "requirement": "CORE", "probability": 0.9 }])
+    );
+    assert_eq!(json["summary"]["decisions"], 1);
+}
+
+#[test]
+fn conflict_answers_are_cached_like_decision_answers() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/cache.rs"]);
+
+    let first = repo.run(&["check"]);
+    let second = repo.run(&["check"]);
+
+    for run in [&first, &second] {
+        assert!(
+            run.stdout.contains("breaks: CORE (p=0.90)"),
+            "{}",
+            run.stdout
+        );
+    }
+    assert_eq!(jev.conflicts_received().len(), 1, "then cached");
+}
+
+#[test]
+fn conflicts_are_not_checked_without_a_jev_key_and_the_summary_says_so() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/cache.rs"]);
+    repo.env("OPENROUTER_API_KEY", "");
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.ends_with(
+            "Conflicts between requirements not checked: OPENROUTER_API_KEY is not set.\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(jev.received().is_empty());
+}
+
+#[test]
+fn a_finding_no_other_requirement_applies_to_asks_nothing() {
+    let jev = conflict_jev();
+    let repo = repo!();
+    repo.write("Reqfile.yaml", &reqfile(&[("NO_TODO", "- command:\n    run: cat result.sarif; exit 1\n    format: sarif\n    fix_hint: Remove it.")]));
+    repo.write("result.sarif", SARIF);
+    repo.write(".reqfile/config.yaml", &jev.config());
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(jev.received().is_empty());
+    assert!(!run.stdout.contains("Conflicts between"), "{}", run.stdout);
+}
+
+#[test]
+fn conflict_answers_are_recorded_in_the_run_log() {
+    let jev = conflict_jev();
+    let repo = conflict_repo(&jev, &["core/cache.rs"]);
+
+    repo.run(&["check", "--log", "run.jsonl"]);
+
+    let log = std::fs::read_to_string(repo.path().join("run.jsonl")).expect("the log");
+    let conflicts: Vec<serde_json::Value> = log
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("JSON lines"))
+        .filter(|l| l["kind"] == "conflict")
+        .collect();
+    assert_eq!(conflicts.len(), 2, "{log}");
+    let core = conflicts
+        .iter()
+        .find(|l| l["breaks"] == "CORE")
+        .expect("CORE");
+    assert_eq!(core["requirement"], "COLOCATION");
+    assert_eq!(core["file"], "core/cache.rs");
+    assert_eq!(core["conflict"], true);
 }

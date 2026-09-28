@@ -1,6 +1,7 @@
 //! What a finished command means: pass, violations, or a tool error.
 
-use super::reqfile::{CommandCheck, OutputFormat};
+use super::junit;
+use super::reqfile::{CommandCheck, OutputFormat, Thresholds};
 use super::sarif;
 
 /// Lines of output an exit-format violation carries.
@@ -22,6 +23,22 @@ pub struct CommandViolation {
     pub message: String,
     pub file: Option<String>,
     pub line: Option<usize>,
+    /// The probability of violation the command gave, if it gave one.
+    pub probability: Option<f64>,
+    /// Between the thresholds: an advisory finding, not a violation.
+    pub uncertain: bool,
+}
+
+impl CommandViolation {
+    fn certain(message: String, file: Option<String>, line: Option<usize>) -> Self {
+        Self {
+            message,
+            file,
+            line,
+            probability: None,
+            uncertain: false,
+        }
+    }
 }
 
 /// The violations a command reported, or why its result cannot be trusted.
@@ -60,11 +77,7 @@ pub fn judge(
     }
     match check.format {
         OutputFormat::Exit if code == 0 => Ok(Vec::new()),
-        OutputFormat::Exit => Ok(vec![CommandViolation {
-            message: tail(&stdout),
-            file: None,
-            line: None,
-        }]),
+        OutputFormat::Exit => Ok(vec![CommandViolation::certain(tail(&stdout), None, None)]),
         OutputFormat::Sarif => {
             let parsed = sarif::parse(&stdout, cwd, repo_root)
                 .map_err(|e| format!("`{}`: {e}", check.run))?;
@@ -77,14 +90,57 @@ pub fn judge(
             Ok(parsed
                 .violations
                 .into_iter()
-                .map(|r| CommandViolation {
-                    message: r.message,
-                    file: r.file,
-                    line: r.line,
+                .filter_map(|r| judge_probability(r, check.thresholds))
+                .collect())
+        }
+        OutputFormat::Junit => {
+            let parsed = junit::parse(&stdout, cwd, repo_root)
+                .map_err(|e| format!("`{}`: {e}", check.run))?;
+            // A run that reports no test at all proved nothing.
+            if !parsed.had_tests {
+                return Err(format!("`{}`: the JUnit report lists no test", check.run));
+            }
+            if code != 0 && parsed.failures.is_empty() {
+                return Err(format!(
+                    "`{}` exited with violation code {code} but its JUnit report lists no failed test",
+                    check.run
+                ));
+            }
+            Ok(parsed
+                .failures
+                .into_iter()
+                .map(|f| {
+                    let message = match f.message {
+                        Some(m) => format!("test {} failed: {m}", f.test),
+                        None => format!("test {} failed", f.test),
+                    };
+                    CommandViolation::certain(message, f.file, f.line)
                 })
                 .collect())
         }
     }
+}
+
+/// A SARIF result as a finding: without a probability, a violation; with
+/// one, a violation above `violation_above`, nothing below `pass_below`, and
+/// an uncertain finding between.
+fn judge_probability(
+    result: sarif::SarifResult,
+    thresholds: Thresholds,
+) -> Option<CommandViolation> {
+    let uncertain = match result.probability {
+        None => false,
+        Some(p) if p > thresholds.violation_above => false,
+        Some(p) if p < thresholds.pass_below => return None,
+        Some(_) => true,
+    };
+    Some(CommandViolation {
+        message: result.message,
+        file: result.file,
+        line: result.line,
+        probability: result.probability,
+        uncertain,
+    })
 }
 
 fn tail(output: &str) -> String {

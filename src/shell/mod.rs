@@ -3,6 +3,8 @@
 pub mod add;
 mod ask;
 pub mod check;
+mod conflicts;
+pub mod example_add;
 pub mod examples;
 pub mod explain;
 mod git;
@@ -12,4 +14,5 @@ pub mod list;
 mod pool;
 mod process;
 mod sources;
+pub mod update;
 mod workspace;

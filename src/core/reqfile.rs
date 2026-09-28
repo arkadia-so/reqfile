@@ -190,12 +190,32 @@ pub struct CommandCheck {
     pub format: OutputFormat,
     pub violation_codes: Vec<i32>,
     pub timeout_secs: u64,
+    /// How results carrying a probability of violation are judged.
+    pub thresholds: Thresholds,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputFormat {
     Exit,
     Sarif,
+    Junit,
+}
+
+/// A probability of violation above `violation_above` is a violation, below
+/// `pass_below` a pass, and anything between an uncertain finding.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Thresholds {
+    pub violation_above: f64,
+    pub pass_below: f64,
+}
+
+impl Default for Thresholds {
+    fn default() -> Self {
+        Self {
+            violation_above: 0.8,
+            pass_below: 0.2,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -320,7 +340,21 @@ fn block(path: &str, kind: Kind, node: Node) -> Result<Block, ConfigError> {
                 ));
             }
             let text = node.text(path, "use")?;
-            Some(parse_location(&text).map_err(|e| ConfigError::at(path, use_line, e))?)
+            let location = parse_location(&text).map_err(|e| ConfigError::at(path, use_line, e))?;
+            if let Location::Git {
+                repo,
+                reference: GitRef::Tag(tag),
+            } = &location
+            {
+                return Err(ConfigError::at(
+                    path,
+                    use_line,
+                    format!(
+                        "`use: {text}` is pinned to a tag, which can move; a Reqfile pins a repository to a full commit id. `reqfile add {repo}@{tag}` writes the line pinned to the commit {tag} points to"
+                    ),
+                ));
+            }
+            Some(location)
         }
     };
     let origin = match location {
@@ -488,6 +522,7 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
             "violation_codes",
             "timeout",
             "fast",
+            "thresholds",
         ],
     )?;
     let run = fields.required("run")?.text(path, "run")?;
@@ -529,11 +564,12 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
             match node.text(path, "format")?.as_str() {
                 "exit" => OutputFormat::Exit,
                 "sarif" => OutputFormat::Sarif,
+                "junit" => OutputFormat::Junit,
                 other => {
                     return Err(ConfigError::at(
                         path,
                         line,
-                        format!("unknown format `{other}`; expected `exit` or `sarif`"),
+                        format!("unknown format `{other}`; expected `exit`, `sarif` or `junit`"),
                     ));
                 }
             }
@@ -574,6 +610,36 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
             }
         }
     };
+    let thresholds = match fields.optional("thresholds") {
+        None => Thresholds::default(),
+        Some(node) => {
+            let line = node.line;
+            let mut t = node.fields(path, "thresholds", &["violation_above", "pass_below"])?;
+            let defaults = Thresholds::default();
+            let violation_above = match t.optional("violation_above") {
+                None => defaults.violation_above,
+                Some(n) => n.number(path, "violation_above")?,
+            };
+            let pass_below = match t.optional("pass_below") {
+                None => defaults.pass_below,
+                Some(n) => n.number(path, "pass_below")?,
+            };
+            if !(0.0..=1.0).contains(&pass_below)
+                || !(0.0..=1.0).contains(&violation_above)
+                || pass_below > violation_above
+            {
+                return Err(ConfigError::at(
+                    path,
+                    line,
+                    "thresholds must satisfy 0 <= pass_below <= violation_above <= 1",
+                ));
+            }
+            Thresholds {
+                violation_above,
+                pass_below,
+            }
+        }
+    };
     Ok(CommandCheck {
         run,
         fast,
@@ -583,5 +649,6 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
         format,
         violation_codes,
         timeout_secs,
+        thresholds,
     })
 }

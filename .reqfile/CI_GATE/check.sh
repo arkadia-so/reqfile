@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Every pull request and release runs the tests, `reqfile check` and
-# `reqfile test` on the exact revision: .github/check.sh runs them in order,
+# `reqfile eval` on the exact revision: .github/check.sh runs them in order,
 # after building the tests so a cold build does not count against the
 # checks' timeouts, and both workflows run it. Exits 1 listing what is
 # missing. Whether the branch rule requires the workflow is a repository
@@ -19,7 +19,7 @@ if [ -f "$script" ]; then
     'cargo test --no-run --locked' \
     'cargo test --locked$' \
     'reqfile check$' \
-    'reqfile test$'; do
+    'reqfile eval$'; do
     line=$(line_of "^[^#]*${step}" "$script")
     if [ -z "$line" ] || [ "$line" -le "$previous" ]; then
       missing+=("$script: \`${step%\$}\`, after the steps before it")

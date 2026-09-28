@@ -7,8 +7,8 @@ reqfile: 1
 
 product:
   - id: REQFILE_FORMAT
-    must: Requirements live in Reqfile.yaml files whose format is versioned and strictly validated, and every error names its file and line.
-    why: A requirement that is silently skipped looks exactly like one that passes, and a versioned format can evolve and be read by other tools.
+    must: Requirements and their labeled examples live in files whose format is versioned and strictly validated, and every error names its file and line.
+    why: A requirement or an example that is silently skipped looks exactly like one that passes, and a versioned format can evolve and be read by other tools.
     who: Reqfile authors; tools reading the format.
     checks:
       - command:
@@ -28,9 +28,9 @@ product:
           timeout: 900
           fix_hint: Make the failing tests in tests/cascade.rs, tests/config_cascade.rs and tests/exclude.rs pass.
 
-  - id: IMPORTS
-    must: A requirement can be taken by reference from another folder or repository, pinned to a tag or commit, and is checked exactly as if it were declared where it is used.
-    why: Principles are written once and reused everywhere without copies to maintain, and pinning keeps rules from changing under a repository.
+  - id: PACKAGES
+    must: Any GitHub repository or folder whose Reqfile.yaml defines a requirement, with its checks and labeled examples under .reqfile/<ID>/, is a package anyone can use with one line pinned to a commit, or try for one run, and that requirement is checked, evaluated and explained exactly as if it were declared where it is used.
+    why: A principle and its checker are written once, by anyone, and reused everywhere without copies; a package has the same format as a local requirement, so there is nothing new to learn; and a commit never changes, so every machine gets the same verdict, offline once fetched.
     who: Teams adopting shared or third-party requirements; authors publishing requirements.
     checks:
       - command:
@@ -40,8 +40,8 @@ product:
           fix_hint: Make the failing tests in tests/imports.rs pass.
 
   - id: COMMAND_CHECK
-    must: Existing tools enforce a requirement through a command whose exit code and SARIF output map to a pass, violations or a tool error, never to a silent pass.
-    why: Mature linters are reused as they are, and a crash or an ignored result must never look like success.
+    must: Any program enforces a requirement through a command whose exit code, or SARIF results carrying an optional probability of violation, map to a pass, a violation, an uncertain finding or a tool error, never to a silent pass.
+    why: Mature linters are reused as they are, checkers are written in any language and fetched by their own ecosystem's runner, one protocol covers rules, heuristics and models alike, and a crash or an ignored result must never look like success.
     who: Reqfile authors.
     checks:
       - command:
@@ -84,8 +84,8 @@ product:
           fix_hint: Make the failing tests in tests/no_false_green.rs pass.
 
   - id: OUTPUT
-    must: Every finding is actionable, with its requirement, location and fix hint, and every run can be recorded for evaluation without changing its result.
-    why: Agents fix violations directly from the output, and improving checks needs evidence of what they judged.
+    must: Every finding is actionable, with its requirement, location, probability and fix hint, names any other requirement its fix would break, and every run can be recorded for evaluation without changing its result.
+    why: Agents fix violations directly from the output; requirements will contradict each other, and a contradiction is a product decision to make, not a fix for an agent to undo back and forth; and improving checks needs evidence of what they judged.
     who: Agents in the fix loop; maintainers of requirements.
     checks:
       - command:
@@ -105,9 +105,9 @@ product:
           timeout: 900
           fix_hint: Make the failing tests in tests/explain.rs and tests/list.rs pass.
 
-  - id: EVIDENCE
-    must: "`reqfile test` reports whether each requirement's labeled examples assert, measure or say nothing about its checks, and never presents a measurement as a verification."
-    why: Exit 0 from `reqfile test` does not mean a decision check works, and nobody should conclude it does.
+  - id: EVALS
+    must: "`reqfile eval` measures each requirement's checks on its labeled examples, and every miss or false alarm met in real use can be added as a new example, so checks become more precise over time and a measurement is never presented as a verification."
+    why: Checks only approximate requirements, and the gap closes only when their failures become evidence; examples keep their label outside the files checks see, so a check cannot read its answer, name the expected findings, so flagging the wrong file counts as a miss, and double as the requirement's documentation.
     who: Reqfile authors; anyone adopting a requirement.
     checks:
       - command:
@@ -118,7 +118,7 @@ product:
 
 process:
   - id: CI_GATE
-    must: Every pull request and every release runs the tests, `reqfile check` and `reqfile test` on the exact revision.
+    must: Every pull request and every release runs the tests, `reqfile check` and `reqfile eval` on the exact revision.
     why: Hooks are feedback an agent can exhaust, and a public repository needs an acceptance gate that contributors cannot bypass.
     who: Maintainers; contributors; users trusting a release.
     checks:

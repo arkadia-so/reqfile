@@ -77,6 +77,9 @@ pub struct Repo {
     root: PathBuf,
     binary: PathBuf,
     env: Mutex<Vec<(String, String)>>,
+    /// The user cache reqfile fetches sources into, one per repository so
+    /// tests never share it.
+    cache: TempDir,
 }
 
 /// The result of running reqfile.
@@ -112,6 +115,7 @@ impl Repo {
             root,
             binary: PathBuf::from(binary),
             env: Mutex::new(Vec::new()),
+            cache: tempfile::tempdir().expect("create a cache folder"),
         };
         repo.git(&["init", "-q", "-b", "main"]);
         repo.git(&["commit", "-q", "--allow-empty", "-m", "start"]);
@@ -120,6 +124,11 @@ impl Repo {
 
     pub fn path(&self) -> &Path {
         &self.root
+    }
+
+    /// The user cache this repository's runs use, `$REQFILE_CACHE`.
+    pub fn cache(&self) -> &Path {
+        self.cache.path()
     }
 
     /// The commit HEAD points to.
@@ -182,6 +191,7 @@ impl Repo {
             .args(args)
             .current_dir(self.path().join(dir))
             .env_remove("OPENROUTER_API_KEY")
+            .env("REQFILE_CACHE", self.cache.path())
             .envs(git_env())
             .envs(self.env.lock().expect("env lock").iter().cloned())
             .output()
@@ -373,11 +383,21 @@ impl FakeJev {
         *self.model.lock().expect("model lock") = Some(model.to_string());
     }
 
-    /// Requests other than the probes reqfile sends to learn the current model.
+    /// Decision check requests: neither the probes reqfile sends to learn
+    /// the current model nor its questions about conflicts.
     pub fn questions_received(&self) -> Vec<Received> {
         self.received()
             .into_iter()
             .filter(|r| r.body["questions"].get("probe").is_none())
+            .filter(|r| r.body["state"].get("finding").is_none())
+            .collect()
+    }
+
+    /// Requests asking whether fixing a finding would break other requirements.
+    pub fn conflicts_received(&self) -> Vec<Received> {
+        self.received()
+            .into_iter()
+            .filter(|r| r.body["state"].get("finding").is_some())
             .collect()
     }
 

@@ -1,8 +1,6 @@
 //! Asking Jev about the units of decision checks: one request per unit for
 //! all the checks that selected it, answers reused from the local cache.
 
-use std::path::Path;
-
 use super::jev;
 use super::jev_cache::Caches;
 use super::pool;
@@ -30,21 +28,17 @@ pub struct Check<'a> {
     pub units: &'a [Unit],
 }
 
-/// An answer for every unit of every check, plus errors that concern no
-/// check in particular. Checks are asked in groups sharing the same Jev
-/// settings, all through one cache; with `prune`, the cache keeps only the
-/// answers this run used.
-pub fn answers(root: &Path, checks: &[Check], prune: bool) -> (Vec<Vec<Answer>>, Vec<String>) {
+/// An answer for every unit of every check. Checks are asked in groups
+/// sharing the same Jev settings, all through the run's cache, or fail with
+/// the reason it could not be opened.
+pub fn answers(caches: Result<&mut Caches, &String>, checks: &[Check]) -> Vec<Vec<Answer>> {
     let sizes: Vec<usize> = checks.iter().map(|c| c.units.len()).collect();
     if sizes.iter().all(|&n| n == 0) {
-        return (checks.iter().map(|_| Vec::new()).collect(), Vec::new());
+        return checks.iter().map(|_| Vec::new()).collect();
     }
-    let mut caches = match Caches::open(root) {
+    let caches = match caches {
         Ok(caches) => caches,
-        Err(e) => {
-            let failed = sizes.iter().map(|&n| vec![Err(e.clone()); n]).collect();
-            return (failed, Vec::new());
-        }
+        Err(e) => return sizes.iter().map(|&n| vec![Err(e.clone()); n]).collect(),
     };
     let mut groups: Vec<(&DecisionConfig, Vec<usize>)> = Vec::new();
     for (i, check) in checks.iter().enumerate() {
@@ -56,19 +50,14 @@ pub fn answers(root: &Path, checks: &[Check], prune: bool) -> (Vec<Vec<Answer>>,
     let mut answers: Vec<Option<Vec<Answer>>> = checks.iter().map(|_| None).collect();
     for (config, members) in groups {
         let group: Vec<&Check> = members.iter().map(|&i| &checks[i]).collect();
-        for (&i, check_answers) in members
-            .iter()
-            .zip(answer_group(&mut caches, config, &group))
-        {
+        for (&i, check_answers) in members.iter().zip(answer_group(caches, config, &group)) {
             answers[i] = Some(check_answers);
         }
     }
-    let answers = answers
+    answers
         .into_iter()
         .map(|a| a.expect("every check belongs to a group"))
-        .collect();
-    // Pruned once, after every group used the cache.
-    (answers, caches.save(prune).into_iter().collect())
+        .collect()
 }
 
 /// The answers of each check of a group sharing one Jev configuration.
@@ -137,7 +126,7 @@ fn ask_batches(
         .collect())
 }
 
-fn connect(config: &DecisionConfig) -> Result<jev::Client, String> {
+pub(super) fn connect(config: &DecisionConfig) -> Result<jev::Client, String> {
     match std::env::var(&config.api_key_env) {
         Ok(key) if !key.is_empty() => Ok(jev::Client::new(&config.endpoint, key)),
         _ => Err(format!(
@@ -149,7 +138,10 @@ fn connect(config: &DecisionConfig) -> Result<jev::Client, String> {
 
 /// The exact model the configured one resolves to today, which cached
 /// answers are keyed by.
-fn resolve_model(client: &jev::Client, config: &DecisionConfig) -> Result<String, String> {
+pub(super) fn resolve_model(
+    client: &jev::Client,
+    config: &DecisionConfig,
+) -> Result<String, String> {
     let body = client.ask(&decision::probe_request(&config.model))?;
     decision::parse_response(&body, &[]).map(|(model, _)| model)
 }
@@ -181,7 +173,7 @@ fn from_cache(
 }
 
 /// Asks the questions no cache answered.
-fn send(
+pub(super) fn send(
     client: &jev::Client,
     config: &DecisionConfig,
     asked: &Asked,
@@ -203,7 +195,7 @@ fn send(
 }
 
 /// Fills the unanswered slots with a response, caching what Jev answered.
-fn record(
+pub(super) fn record(
     caches: &mut Caches,
     asked: &Asked,
     results: &mut [Option<Answer>],

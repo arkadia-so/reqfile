@@ -11,6 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 use super::ask;
+use super::conflicts;
+use super::jev_cache::Caches;
 use super::pool;
 use super::process;
 use super::workspace::Workspace;
@@ -34,6 +36,8 @@ pub struct Options {
     pub log: Option<PathBuf>,
     /// `--log-tag KEY=VALUE`, repeated.
     pub log_tags: Vec<String>,
+    /// `--use LOCATION`, repeated: requirements to try for this run.
+    pub uses: Vec<String>,
 }
 
 /// The lines of the run log, while the run goes.
@@ -66,7 +70,7 @@ struct DecisionJob<'w> {
 }
 
 pub fn run(cwd: &Path, options: &Options) -> Report {
-    match Workspace::load(cwd) {
+    match Workspace::load_trying(cwd, &options.uses, options.only.as_deref()) {
         Ok(workspace) => run_in(&workspace, options),
         Err(errors) => Report::from_errors(errors),
     }
@@ -112,15 +116,51 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
     );
     report.checks_run += plan.commands.len() + plan.decisions.len();
     run_commands(workspace, &plan.commands, &mut report, &mut log);
-    if selected.iter().any(|&i| {
+    // Decisions and conflicts share one Jev cache, saved once at the end, so
+    // pruning keeps the answers of both.
+    let mut caches = Caches::open(&workspace.root);
+    let decided = selected.iter().any(|&i| {
         workspace.blocks[i]
             .checks
             .iter()
             .any(|c| matches!(c, Check::Decision(_)))
-    }) {
+    });
+    if decided {
+        run_decisions(
+            &plan.decisions,
+            caches.as_mut().map_err(|e| &*e),
+            &mut report,
+            &mut log,
+        );
+    }
+    let mut answered = Vec::new();
+    conflicts::check(
+        workspace,
+        &mut report,
+        caches.as_mut().map_err(|e| &*e),
+        &mut answered,
+    );
+    for (finding, other, probability) in &answered {
+        log_line(
+            &mut log,
+            "conflict",
+            conflicts::log_fields(&report, *finding, other, *probability),
+        );
+    }
+    if (decided || !answered.is_empty())
+        && let Ok(caches) = &caches
+    {
         // Only a run that saw every unit knows which cached answers are obsolete.
-        let prune = options.changed.is_none() && options.only.is_none();
-        run_decisions(workspace, &plan.decisions, prune, &mut report, &mut log);
+        let prune = decided && options.changed.is_none() && options.only.is_none();
+        if let Some(message) = caches.save(prune) {
+            // A cache that cannot be written blocks the run only if a blocking decision check ran.
+            let blocking = plan.decisions.iter().any(|job| job.blocking);
+            report.errors.push(Error {
+                requirement: None,
+                message,
+                blocking,
+            });
+        }
     }
     if let (Some(path), Some(log)) = (&options.log, log)
         && let Err(message) = append_log(path, &log.lines)
@@ -279,7 +319,7 @@ fn run_commands(
                     log_line(
                         log,
                         "command_finding",
-                        json!({ "requirement": id, "file": v.file, "line": v.line, "message": v.message }),
+                        json!({ "requirement": id, "file": v.file, "line": v.line, "message": v.message, "probability": v.probability, "uncertain": v.uncertain }),
                     );
                 }
                 report
@@ -302,9 +342,8 @@ fn run_commands(
 
 /// Asks Jev about the units of the decision checks and records its verdicts.
 fn run_decisions(
-    workspace: &Workspace,
     decisions: &[DecisionJob],
-    prune: bool,
+    caches: Result<&mut Caches, &String>,
     report: &mut Report,
     log: &mut Option<Log>,
 ) {
@@ -317,16 +356,7 @@ fn run_decisions(
             units: &job.units,
         })
         .collect();
-    let (answers, errors) = ask::answers(&workspace.root, &checks, prune);
-    // Errors of no check in particular block the run only if a blocking check could be affected.
-    let blocking = decisions.iter().any(|job| job.blocking);
-    report
-        .errors
-        .extend(errors.into_iter().map(|message| Error {
-            requirement: None,
-            message,
-            blocking,
-        }));
+    let answers = ask::answers(caches, &checks);
     report.units_judged = Some(answers.iter().flatten().filter(|a| a.is_ok()).count());
     for (job, answers) in decisions.iter().zip(answers) {
         judge_decisions(report, job, answers, log);
@@ -591,15 +621,20 @@ fn command_finding(job: &CommandJob, violation: CommandViolation) -> Finding {
     let (block, source) = provenance(job.block);
     Finding {
         requirement: job.block.id.clone(),
-        kind: FindingKind::Violation,
+        kind: if violation.uncertain {
+            FindingKind::Uncertain
+        } else {
+            FindingKind::Violation
+        },
         file: violation.file,
         line: violation.line,
         message: violation.message,
         fix_hint: job.check.fix_hint.clone(),
-        probability: None,
+        probability: violation.probability,
         model: None,
         block,
         source,
+        conflicts: Vec::new(),
     }
 }
 
@@ -669,6 +704,7 @@ fn judge_decisions(
             model: Some(judged.model),
             block: block.clone(),
             source: source.clone(),
+            conflicts: Vec::new(),
         });
     }
     if let Some(first) = failures.first() {

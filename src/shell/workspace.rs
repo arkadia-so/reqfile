@@ -13,7 +13,7 @@ use super::sources;
 use crate::core::config::{self, Settings};
 use crate::core::paths;
 use crate::core::report::Source as SourceStatus;
-use crate::core::reqfile::{self, Check, GitRef, Location, Origin, Reqfile};
+use crate::core::reqfile::{self, Block, Check, GitRef, Kind, Location, Origin, Reqfile};
 use crate::core::resolve::{self, Assets, Effective, Source};
 
 pub struct Workspace {
@@ -69,6 +69,17 @@ struct Discovered {
 impl Workspace {
     /// Loads the repository containing `cwd`, or every error found on the way.
     pub fn load(cwd: &Path) -> Result<Self, Vec<String>> {
+        Self::load_trying(cwd, &[], None)
+    }
+
+    /// Loads the repository containing `cwd`, adding for this run a use
+    /// block at its root for every code and process requirement defined at
+    /// each location of `uses` (`--use`), restricted to `only` if given.
+    pub fn load_trying(
+        cwd: &Path,
+        uses: &[String],
+        only: Option<&[String]>,
+    ) -> Result<Self, Vec<String>> {
         let root = git::root(cwd).map_err(|e| vec![e])?;
         // A file renamed but not yet staged is still listed under its old name.
         let listed: Vec<String> = git::files(&root)
@@ -78,7 +89,21 @@ impl Workspace {
             // and its content would be handed to tools and sent to Jev.
             .filter(|p| fs::symlink_metadata(root.join(p)).is_ok_and(|m| m.is_file()))
             .collect();
-        Self::from_files(root.clone(), listed, Files::Worktree(root))
+        let trying = if uses.is_empty() {
+            None
+        } else {
+            let here = cwd
+                .canonicalize()
+                .ok()
+                .and_then(|c| {
+                    c.strip_prefix(&root)
+                        .ok()
+                        .map(|p| p.to_string_lossy().into_owned())
+                })
+                .unwrap_or_default();
+            Some(Trying { here, uses, only })
+        };
+        Self::from_files(root.clone(), listed, Files::Worktree(root), trying)
     }
 
     /// Loads the repository at `root` as it was at `commit`.
@@ -90,7 +115,7 @@ impl Workspace {
             .filter(|p| read_ahead(p))
             .collect();
         let contents = git::read_at(root, commit, &needed).map_err(|e| vec![e])?;
-        Self::from_files(root.to_path_buf(), listed, Files::Commit(contents))
+        Self::from_files(root.to_path_buf(), listed, Files::Commit(contents), None)
     }
 
     /// A repository of labeled example files, checked with one requirement
@@ -113,27 +138,46 @@ impl Workspace {
         })
     }
 
-    fn from_files(root: PathBuf, listed: Vec<String>, files: Files) -> Result<Self, Vec<String>> {
-        let discovered = discover(&listed, &files)?;
+    fn from_files(
+        root: PathBuf,
+        listed: Vec<String>,
+        files: Files,
+        trying: Option<Trying>,
+    ) -> Result<Self, Vec<String>> {
+        let mut discovered = discover(&listed, &files)?;
         let mut errors: Vec<String> = resolve::check_unique_definitions(&discovered.reqfiles)
             .iter()
             .map(ToString::to_string)
             .collect();
-        let mut sources = Vec::new();
-        let mut statuses = Vec::new();
-        for (repo, reference) in git_locations(&discovered.reqfiles) {
-            match load_source(&root, &repo, &reference) {
-                Ok(source) => {
-                    statuses.push(SourceStatus {
-                        location: format!("{repo}@{}", reference.as_str()),
-                        commit: source.commit.clone(),
-                        offline: source.offline,
-                    });
-                    sources.push(source);
-                }
+        let mut sources: Vec<Source> = Vec::new();
+        if let Some(trying) = trying {
+            match tried(&trying, &discovered.reqfiles, &mut sources) {
+                Ok(reqfile) => discovered.reqfiles.push(reqfile),
                 Err(e) => errors.extend(e),
             }
         }
+        for (repo, reference) in git_locations(&discovered.reqfiles) {
+            if sources
+                .iter()
+                .any(|s| s.repo == repo && s.reference == reference)
+            {
+                continue;
+            }
+            match load_source(&repo, &reference) {
+                Ok(source) => sources.push(source),
+                Err(e) => errors.extend(e),
+            }
+        }
+        // A commit pin says what it is; a tag reports the commit it resolved to.
+        let statuses = sources
+            .iter()
+            .filter(|s| matches!(s.reference, GitRef::Tag(_)))
+            .map(|s| SourceStatus {
+                location: format!("{}@{}", s.repo, s.reference.as_str()),
+                commit: s.commit.clone(),
+                offline: s.offline,
+            })
+            .collect();
         if !errors.is_empty() {
             return Err(errors);
         }
@@ -217,6 +261,106 @@ impl Workspace {
     }
 }
 
+/// `--use` for one run: where it was given from, and what it asks for.
+struct Trying<'a> {
+    /// The current folder, as a repository path.
+    here: String,
+    uses: &'a [String],
+    only: Option<&'a [String]>,
+}
+
+/// The Reqfile `--use` adds at the root for this run: a use block for every
+/// code and process requirement defined at each location. Sources it
+/// fetches go to `sources`.
+fn tried(
+    trying: &Trying,
+    reqfiles: &[Reqfile],
+    sources: &mut Vec<Source>,
+) -> Result<Reqfile, Vec<String>> {
+    let mut blocks: Vec<Block> = Vec::new();
+    let mut errors = Vec::new();
+    for text in trying.uses {
+        let location = reqfile::parse_location(text).map_err(|e| vec![format!("--use: {e}")])?;
+        let (definitions, location, own_folder) = match location {
+            Location::Local(path) => {
+                let folder = paths::normalize(&paths::join(&trying.here, &path))
+                    .ok_or_else(|| vec![format!("--use {text}: outside the repository")])?;
+                let at_root = if folder.is_empty() {
+                    ".".to_string()
+                } else {
+                    format!("./{folder}")
+                };
+                (
+                    definitions_under(reqfiles, &folder),
+                    Location::Local(at_root),
+                    Some(folder),
+                )
+            }
+            Location::Git { repo, reference } => {
+                let source = load_source(&repo, &reference)?;
+                let found = definitions_under(&source.reqfiles, "");
+                sources.push(source);
+                (found, Location::Git { repo, reference }, None)
+            }
+        };
+        let chosen: Vec<(String, Kind)> = definitions
+            .into_iter()
+            .filter(|(id, _)| trying.only.is_none_or(|ids| ids.contains(id)))
+            .collect();
+        if chosen.is_empty() {
+            errors.push(format!(
+                "--use {text}: no code or process requirement to try there"
+            ));
+        }
+        for (id, kind) in chosen {
+            // A local folder's own definitions are what is tried, not a clash.
+            let elsewhere = reqfiles
+                .iter()
+                .filter(|r| {
+                    own_folder
+                        .as_ref()
+                        .is_none_or(|f| !paths::contains_dir(f, &r.dir))
+                })
+                .flat_map(|r| &r.blocks)
+                .any(|b| b.id == id);
+            if elsewhere || blocks.iter().any(|b| b.id == id) {
+                errors.push(format!(
+                    "--use {text}: {id} is already required here; try it with --only on other ids, or edit the Reqfile"
+                ));
+                continue;
+            }
+            blocks.push(Block {
+                id,
+                kind,
+                line: 1,
+                why: None,
+                who: None,
+                checks: None,
+                origin: Origin::Use(location.clone()),
+            });
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(Reqfile {
+        path: "--use".to_string(),
+        dir: String::new(),
+        blocks,
+    })
+}
+
+/// The code and process definitions of the Reqfiles at or under `folder`.
+fn definitions_under(reqfiles: &[Reqfile], folder: &str) -> Vec<(String, Kind)> {
+    reqfiles
+        .iter()
+        .filter(|r| paths::contains_dir(folder, &r.dir))
+        .flat_map(|r| &r.blocks)
+        .filter(|b| matches!(b.origin, Origin::Definition { .. }) && b.kind.importable())
+        .map(|b| (b.id.clone(), b.kind))
+        .collect()
+}
+
 /// Files read ahead from a commit: whatever discovery and fingerprints read.
 fn read_ahead(path: &str) -> bool {
     let name = paths::file_name(path);
@@ -242,8 +386,8 @@ fn git_locations(reqfiles: &[Reqfile]) -> BTreeSet<(String, GitRef)> {
 
 /// A git source: fetched, then discovered like a repository of its own,
 /// following its own exclusions. Its settings serve discovery only.
-pub fn load_source(root: &Path, repo: &str, reference: &GitRef) -> Result<Source, Vec<String>> {
-    let fetched = sources::fetch(root, repo, reference).map_err(|e| vec![e])?;
+pub fn load_source(repo: &str, reference: &GitRef) -> Result<Source, Vec<String>> {
+    let fetched = sources::fetch(repo, reference).map_err(|e| vec![e])?;
     let listed: Vec<String> = walk(&fetched.dir)
         .map_err(|e| vec![e])?
         .into_iter()

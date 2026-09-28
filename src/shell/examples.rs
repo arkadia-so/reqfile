@@ -1,6 +1,6 @@
-//! `reqfile test`: runs each requirement's checks on its labeled examples,
-//! each case alone in a fresh repository, its files reached only through
-//! `$REQFILE_ASSETS`.
+//! `reqfile eval`: runs each requirement's checks on its labeled examples,
+//! each case's `files/` alone in a fresh repository, the checks' own files
+//! reached only through `$REQFILE_ASSETS`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,14 +9,18 @@ use std::process::Command;
 use super::check;
 use super::workspace::Workspace;
 use crate::core::config::Settings;
-use crate::core::examples::{self, Evidence, Outcome, Tested};
+use crate::core::examples::{self, Case, EXAMPLE_FILE, Evidence, FILES_DIR, Outcome, Tested};
 use crate::core::report::Report;
 use crate::core::reqfile::Check;
 use crate::core::resolve::{self, Assets, Effective};
 
-/// The report and exit code of `reqfile test`, or the errors that prevent it.
-pub fn run(cwd: &Path, only: Option<&[String]>) -> Result<(String, i32), Vec<String>> {
-    let workspace = Workspace::load(cwd)?;
+/// The report and exit code of `reqfile eval`, or the errors that prevent it.
+pub fn run(
+    cwd: &Path,
+    only: Option<&[String]>,
+    uses: &[String],
+) -> Result<(String, i32), Vec<String>> {
+    let workspace = Workspace::load_trying(cwd, uses, only)?;
     if let Some(ids) = only {
         let unknown: Vec<String> = ids
             .iter()
@@ -35,26 +39,36 @@ pub fn run(cwd: &Path, only: Option<&[String]>) -> Result<(String, i32), Vec<Str
     let mut tested = Vec::new();
     for block in &blocks {
         let mut cases = Vec::new();
+        // A command that reports probabilities is measured like a decision check.
+        let mut probabilistic = false;
         for examples in example_dirs(&workspace, block) {
             if !examples.is_dir() {
                 continue;
             }
             for (name, case) in sorted_dirs(&examples)? {
-                let Some(label) = examples::label(&name) else {
-                    return Err(vec![format!(
-                        "{}: an example folder must be named violation-… or ok-…",
-                        case.display()
-                    )]);
+                let example = read_example(&workspace, &case)?;
+                let outcome = match run_case(&workspace, block, &case.join(FILES_DIR)) {
+                    Ok(report) => {
+                        probabilistic |= report.findings.iter().any(|f| {
+                            f.requirement == block.id
+                                && f.probability.is_some()
+                                && f.model.is_none()
+                        });
+                        examples::outcome(&example, &block.id, &report)
+                    }
+                    Err(e) => Outcome::Error(e),
                 };
-                let outcome = run_case(&workspace, block, &case)
-                    .map(|report| examples::outcome(label, &block.id, &report))
-                    .unwrap_or_else(Outcome::Error);
-                cases.push((name, label, outcome));
+                cases.push(Case {
+                    name,
+                    label: example.expected,
+                    known: example.known,
+                    outcome,
+                });
             }
         }
         let evidence = if cases.is_empty() {
             Evidence::None
-        } else if block.checks.iter().any(|c| matches!(c, Check::Decision(_))) {
+        } else if probabilistic || block.checks.iter().any(|c| matches!(c, Check::Decision(_))) {
             Evidence::Measured
         } else {
             Evidence::Asserted
@@ -71,6 +85,42 @@ pub fn run(cwd: &Path, only: Option<&[String]>) -> Result<(String, i32), Vec<Str
         });
     }
     Ok(examples::render(&tested))
+}
+
+/// Reads an example's `example.yaml`, checking that it has its case in
+/// `files/` and that its expected findings are files of that case.
+fn read_example(workspace: &Workspace, case: &Path) -> Result<examples::Example, Vec<String>> {
+    let shown = |path: &Path| {
+        path.strip_prefix(&workspace.root)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    };
+    let file = case.join(EXAMPLE_FILE);
+    if !file.is_file() {
+        return Err(vec![format!(
+            "{}: an example holds {EXAMPLE_FILE} (`expected: violation` or `expected: ok`) and its case in {FILES_DIR}/; the folder name no longer carries the label",
+            shown(case)
+        )]);
+    }
+    let text = fs::read_to_string(&file).map_err(|e| vec![format!("{}: {e}", shown(&file))])?;
+    let example = examples::parse(&shown(&file), &text).map_err(|e| vec![e.to_string()])?;
+    let files = case.join(FILES_DIR);
+    if !files.is_dir() {
+        return Err(vec![format!(
+            "{}: an example holds its case in {FILES_DIR}/, the only part its checks see",
+            shown(case)
+        )]);
+    }
+    for finding in &example.findings {
+        if !files.join(finding).is_file() {
+            return Err(vec![format!(
+                "{}: expected finding {finding} is not a file of {FILES_DIR}/",
+                shown(&file)
+            )]);
+        }
+    }
+    Ok(example)
 }
 
 /// The folders holding a block's labeled examples: its definition's, and
@@ -112,6 +162,7 @@ fn run_case(workspace: &Workspace, block: &Effective, case: &Path) -> Result<Rep
         fast: false,
         log: None,
         log_tags: Vec::new(),
+        uses: Vec::new(),
     };
     Ok(check::run_in(&case_workspace, &options))
 }

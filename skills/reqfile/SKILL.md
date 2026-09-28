@@ -20,17 +20,17 @@ This skill: https://reqfile.dev/SKILL.md
    tool versions, package scripts and CI. Preserve existing requirements and
    configuration. Use an existing `reqfile` installation if available.
 2. Install the CLI through the project's tool manager. With mise, add
-   `"github:arkadia-so/reqfile" = "0.2.0"` to its existing `[tools]` table and
+   `"github:arkadia-so/reqfile" = "0.3.0"` to its existing `[tools]` table and
    run `mise install`. macOS and Linux prebuilt binaries are also available:
 
    ```sh
    installer_dir=$(mktemp -d) &&
-     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.2.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
+     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.3.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
      sh "$installer_dir/install.sh"
    reqfile --version
    ```
 
-   Alternatively use `cargo install reqfile --version 0.2.0 --locked` with
+   Alternatively use `cargo install reqfile --version 0.3.0 --locked` with
    Rust 1.90 or later. Reqfile also needs Git, a shell, and the tools invoked
    by this repository's checks. Respect an existing version pin.
 3. If there are no requirements, derive a small initial set from the user's
@@ -68,11 +68,15 @@ reqfile explain src/                  # Read the requirements governing an edit
 reqfile check --fast --changed        # Short feedback loop, including working changes
 reqfile check --only REQUIREMENT_ID   # Focus on one requirement
 reqfile check --format json           # Full, machine-readable report
-reqfile test                          # Run the requirements' labeled examples
+reqfile eval                          # Measure the checks on their labeled examples
 ```
 
 Fix the source of a finding using its requirement, location and fix hint, then
-rerun. Preserve the requirement's intended behavior when adjusting its checks.
+rerun. A finding marked `breaks: OTHER` contradicts another requirement, and
+the summary lists it under `decide`: do not fix it, since the fix would break
+the other requirement and the next run would undo it. Tell the user which
+decision each `decide` line needs (reword one requirement, or say which one
+wins) and fix the other findings. Preserve the requirement's intended behavior when adjusting its checks.
 `--fast` defers command checks unless they declare `fast: true`; it still runs
 decision checks and can call the model. A full `reqfile check` runs every check.
 
@@ -139,14 +143,18 @@ test` check, for example.
 
 A code or process requirement defined in another folder or repository is taken
 with a use block, `- { id: FAIL_FAST, use: ./shared }` or `- { id: FAIL_FAST,
-use: owner/repo@v1.2.0 }`, pinned to a tag or a full commit id, never a
-branch. Run `reqfile add <location> [IDS]` first: it runs nothing, and prints
-the resolved commit, the blocks to add and every command their checks run.
-Taking a requirement from another repository runs its commands in this
-repository's CI; do it only with the user's agreement. A use block may set
-`why`, `who` and `checks`, never `must`. Verify with `reqfile test --only IDS`
-and `reqfile check --only IDS`, and `reqfile explain <path>` shows which block
-applies and where its definition comes from.
+use: owner/repo@<commit> }  # v1.2.0`, a repository always pinned to a full
+commit id. Try it first, without writing anything: `reqfile eval --use
+owner/repo@v1.2.0` measures its checks on its examples and `reqfile check
+--use owner/repo@v1.2.0 --only IDS` runs them on this code. Then `reqfile add
+owner/repo@v1.2.0 [IDS]` writes the use blocks pinned to the tag's commit and
+prints every command their checks run; `reqfile update` later moves the pins
+to the latest release. Taking a requirement from another repository runs its
+commands in this repository's CI; do it only with the user's agreement. A use
+block may set `why`, `who` and `checks`, never `must`, and its own
+`.reqfile/<ID>/examples/` can hold this repository's examples of it.
+`reqfile explain <path>` shows which block applies and where its definition
+comes from.
 
 ## Judgment checks, when needed
 
@@ -171,17 +179,22 @@ check. A `typescript` unit rule never selects `.tsx` files: add `tsx` rules.
 
 ## Improve checks with examples
 
-Put small file trees under `.reqfile/<ID>/examples/ok-<name>/` and
-`.reqfile/<ID>/examples/violation-<name>/`. Then run:
+An example is `.reqfile/<ID>/examples/<name>/` with `example.yaml`
+(`expected: violation` or `ok`, and optionally `findings`, the files the
+checks must flag, `rationale`, `origin` and `known: miss|false_alarm`) and its
+case in `files/`, the only part the checks see. When a check misses a
+violation or flags correct code in real use, make it an example:
 
 ```sh
-reqfile test --only REQUIREMENT_ID
+reqfile example add REQUIREMENT_ID lowercase-todo --expected violation \
+  --finding docs/plan.txt --rationale "Why it has this label." docs/
+reqfile eval --only REQUIREMENT_ID
 ```
 
-Each requirement is reported as `asserted` (command checks only: every label
-must match, or the run exits 1), `measured, no assertion` (a decision check:
-detection rates, exit 0 despite misses or false positives) or `no evidence`
-(no examples). Inspect the measurements, not only the exit code.
+Each requirement is reported as `asserted` (deterministic checks: every label
+must match, or the run exits 1), `measured, no assertion` (a decision check or
+a command reporting probabilities: detection rates, exit 0 despite misses or
+false positives) or `no evidence` (no examples). Inspect the measurements, not only the exit code.
 Keep labels grounded in the requirement, include both classes, and examine
 unselected violations as well as false positives. Rerun the same examples
 before and after changes. Repeat model-based measurements to observe variation.

@@ -36,7 +36,7 @@ With [mise](https://mise.jdx.dev), from the prebuilt binaries (macOS and Linux):
 ```toml
 # mise.toml
 [tools]
-"github:arkadia-so/reqfile" = "0.2"
+"github:arkadia-so/reqfile" = "0.3"
 ```
 
 Or with the install script, `cargo binstall reqfile`, or from source with
@@ -128,10 +128,11 @@ Target files come from git (tracked and untracked, never ignored), minus
 | `fix_hint` | yes | One line telling how to fix a violation |
 | `files` | no | Glob relative to that folder; the command runs only if a target file matches |
 | `pass_files` | no | Append the matching files as arguments (default false) |
-| `format` | no | `exit` (default) or `sarif` |
+| `format` | no | `exit` (default), `sarif` or `junit` |
 | `violation_codes` | no | Exit codes meaning "violations found" (default `[1]`; `[101]` for `cargo test`) |
 | `timeout` | no | Seconds, default 60 |
 | `fast` | no | Quick enough for `reqfile check --fast`, such as in an edit hook (default false) |
+| `thresholds` | no | `{ violation_above, pass_below }` for SARIF results carrying a probability (default 0.8 and 0.2) |
 
 A command without `files` always runs. With `pass_files`, the files are
 appended at the end of the whole command, so a pipeline such as `tool "$@" |
@@ -153,6 +154,26 @@ no status or `status: accepted` suppresses the result; `rejected` and
 `underReview` do not. An empty `suppressions` array does not suppress anything.
 This catches findings from pipelines such as `clippy | clippy-sarif` even when
 the final command exits 0.
+
+A SARIF result may carry `properties.probability`, the probability that it
+is a violation, so heuristics and models speak the same protocol as linters.
+Such a result is judged by it, whatever its kind: above `violation_above` a
+violation, below `pass_below` nothing, and between an uncertain finding,
+always advisory. A probability outside 0 to 1 is a tool error. A checker can
+report every file it judged, with low probabilities for the fine ones.
+
+With `format: junit`, the command prints a JUnit XML report, as cargo-nextest,
+pytest, vitest, bun and gotestsum write: each failed or errored test case is a
+violation named after the test (`test output::names_conflicts failed: …`),
+located by its `file` and `line` attributes when the runner gives them. A
+report with no test case, or a violation code with no failed test, is a tool
+error.
+
+A checker is any program. When a requirement is shared, its command fetches
+the checker with its ecosystem's runner at an exact version, such as `bunx
+@scope/reqfile-colocation@0.1.1`, `uvx tool==1.2.0` or `go run
+example.com/tool@v1.2.0`, so nothing needs installing and reqfile manages no
+packages.
 
 Invalid SARIF (including on exit 0), a violation code with no SARIF results,
 any unexpected exit code, a signal or a timeout is a tool error. A report
@@ -208,28 +229,32 @@ A use block takes a requirement defined elsewhere:
 
 ```yaml
 code:
-  - { id: FAIL_FAST, use: ./std }                          # a folder of this repository
-  - { id: DECOMPLECT, use: acme/reqs@v1.2.0 }              # a repository at a tag
+  - { id: FAIL_FAST, use: ./std }                                                    # a folder of this repository
+  - { id: COLOCATION, use: gabsn/reqfile-colocation@d0ba113c4ca2882d8c86329049359e02ae9625b6 }  # v0.1.1
   - id: CONTRACTS
-    use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d   # at a commit
+    use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d   # v1.2.0
     why: The billing core must never reach an invalid state.
 ```
 
+Any repository or folder whose Reqfile.yaml defines a requirement, with its
+checks and labeled examples under `.reqfile/<ID>/`, is a package: the same
+format as a local requirement, nothing more.
+
 - **Locations.** A folder, relative to the folder of the use block's Reqfile
-  (`./std`, `../shared`), or `owner/repo@ref`, fetched from
+  (`./std`, `../shared`), or `owner/repo@<commit>`, fetched from
   `https://github.com/owner/repo` (`$REQFILE_GIT_BASE/owner/repo` when that
   variable is set, for a mirror). The use block resolves to the unique
   definition with its id among the Reqfiles at or under that location,
   discovered like a repository of its own, with its exclusions. Use blocks are
   never resolution targets, so chains cannot form.
-- **Refs.** A full 40-character commit id, or a tag, resolved through
-  `refs/tags/<name>` even if a branch has the same name. Branch names, short
-  ids and `HEAD` are errors: the rules of a repository must not change under
-  it. Tags are resolved again on each run and every run reports the commit
-  each ref resolved to; without network access, the last resolution cached in
-  the git folder is used, and the report says so. Commits are fetched once
-  into `.git/reqfile/sources/`, addressed by commit id and shared by every
-  worktree.
+- **Pins.** A Reqfile pins a repository to a full 40-character commit id; the
+  tag it came from goes in a comment. A tag, a branch, a short id or `HEAD` is
+  an error: the rules of a repository must not change under it. Nobody types
+  the commit: `reqfile add` writes the line and `reqfile update` moves it.
+- **Cache.** A commit never changes, so it is fetched once into the user's
+  cache (`$REQFILE_CACHE`, else `$XDG_CACHE_HOME/reqfile`, else
+  `~/.cache/reqfile`), shared by every repository and worktree, and checked
+  offline from then on. CI can keep that folder between runs.
 - **Types.** Only `code` and `process` requirements can be taken: a `product`
   requirement describes its own repository's product. The section of the use
   block must match its definition's.
@@ -243,30 +268,69 @@ code:
 - **`$REQFILE_ASSETS`** is one `.reqfile/<ID>/` folder, never a merge: the
   definition's for inherited checks, the use block's own for checks it sets.
   With inherited checks, the use block's own `.reqfile/<ID>/` may only hold
-  `examples/`.
+  `examples/`, where you add your own examples of a shared requirement.
 
-`reqfile add <location> [IDS]` shows what taking requirements would mean,
-without running or writing anything: the definitions and commit the location
-resolves to, the use blocks to add under their sections, what their checks
-run, and the two commands verifying them, `reqfile test --only` and `reqfile
-check --only`. Without ids, it lists every code and process requirement there.
+`reqfile add <location> [IDS]` writes the use blocks into the Reqfile of the
+current folder, under their sections, a repository pinned to the commit its
+tag points to (resolved through `refs/tags/<name>`, never a branch), and says
+what their checks run; `--dry-run` only shows them. Without ids, it takes
+every code and process requirement there. `reqfile update` moves every pin to
+the commit of its repository's latest release tag (`vX.Y.Z`); the diff is the
+review.
 
-Use blocks need a reqfile of version 0.2 or later: 0.1 reports `use` as an
-unknown key, naming its line, so it never skips one silently.
+To try requirements before adopting them, `reqfile check --use <location>`
+and `reqfile eval --use <location>` add them for one run, without writing any
+Reqfile; `--only` narrows them. A tag is welcome there: it is resolved on
+each run and the summary names the commit it resolved to, or the last one
+cached when the remote cannot be reached.
 
-## Evidence: `reqfile test`
+Use blocks need a reqfile of version 0.2 or later, and commit pins 0.3: 0.1
+reports `use` as an unknown key, naming its line, so it never skips one
+silently.
 
-Each requirement can keep labeled examples in `.reqfile/<ID>/examples/`: one
-folder per case, named `violation-…` or `ok-…`, holding a small file tree.
-`reqfile test` puts each case alone in a fresh repository, holding only the
-case's files, and runs the requirement's effective checks on it with
-`$REQFILE_ASSETS` and the Jev settings of its folder. A requirement taken with
-`use` is tested with its definition's examples and its own.
+## Evals: `reqfile eval`
+
+Checks approximate requirements, so each one is measured on labeled examples,
+the eval of the requirement. An example is a folder under
+`.reqfile/<ID>/examples/`:
+
+```
+.reqfile/COLOCATION/examples/distant-test/
+  example.yaml   # what the checks should say
+  files/         # the case, the only part the checks see
+    src/checkout/discount.ts
+    test/unit/checkout/discount.test.ts
+```
+
+```yaml
+expected: violation                          # violation | ok
+findings: [test/unit/checkout/discount.test.ts]   # optional: where the checks must flag
+rationale: The test sits in a mirror tree while its sibling tests are colocated.
+origin: authored                             # or real:<commit>, for a case met in real use
+known: miss                                  # optional: a failure tracked without failing
+```
+
+`reqfile eval` puts each case's `files/` alone in a fresh repository and runs
+the requirement's effective checks on it with `$REQFILE_ASSETS` and the Jev
+settings of its folder. The label stays outside, so no check can read its
+answer. A violation flagged elsewhere than its `findings` counts as missed.
+`known: miss` (a violation) or `known: false_alarm` (an ok example) records a
+failure the checks are known to have, reported without failing, until the
+checks improve and the eval says to remove it. A requirement taken with `use`
+is measured on its definition's examples and its own. Examples double as the
+requirement's documentation: a violation and an ok case side by side say what
+the `must` means.
+
+Checks become precise over time when their failures become evidence:
+`reqfile example add <ID> <name> --expected violation|ok [--finding FILE]...
+[--rationale TEXT] FILES...` copies files of the repository into a new
+example, with the commit it came from, and `reqfile eval` reports it as
+missed or a false alarm until the check is improved.
 
 ```
 UNUSED_CODE  asserted: 2 examples, 2 as labeled
 FAIL_FAST  measured, no assertion: 3 of 4 violations caught (1 missed, 0 not selected, 0 uncertain); 0 of 2 correct examples flagged (0 uncertain)
-  violation-rust-ok-discard: missed
+  rust-ok-discard: missed
 SIMULATION  no evidence: no labeled examples
 
 3 requirements: 1 asserted, 1 measured, 1 without evidence; 6 examples. 0 failing their labels.
@@ -274,10 +338,11 @@ SIMULATION  no evidence: no labeled examples
 
 Each requirement falls in one of three classes:
 
-- **asserted**: command checks only, which must match every label, or `reqfile
-  test` exits 1;
-- **measured**: with a decision check, results are counted, never asserted:
-  model judgments vary, so exit 0 does not mean the check works. A detector
+- **asserted**: deterministic checks only, which must match every label, or
+  `reqfile eval` exits 1;
+- **measured**: with a decision check, or a command reporting probabilities,
+  results are counted, never asserted: judgments vary, so exit 0 does not
+  mean the check works. A detector
   earns its place, or `mode: blocking`, by the rates it reaches on examples it
   was not tuned on;
 - **no evidence**: no labeled examples, so nothing is known about its checks.
@@ -289,9 +354,9 @@ What each step establishes:
 
 | Step | Establishes | Does not establish |
 |---|---|---|
-| `reqfile test` | How the effective checks classify the labeled examples, in isolation | Anything about your code, the tools in CI, or thresholds on your code |
+| `reqfile eval` | How the effective checks classify the labeled examples, in isolation | Anything about your code, the tools in CI, or thresholds on your code |
 | `reqfile check` | What each check selected (files, units) and found, with your settings and this machine's tools | That the selection covers all relevant code, that no finding means the requirement holds, or that decision thresholds suit your code |
-| `reqfile add` | Which definitions and commit the blocks resolve to, and what they will run | Anything else: it runs nothing |
+| `reqfile add` | Which definitions and commit the blocks resolve to, and what they will run | Anything else: it runs none of them |
 
 What stays unverified in every case: code no check looks at, decision
 precision on your code, the tools installed in CI, and the requirements
@@ -328,12 +393,14 @@ endpoint also accepts TypeSafe's own API (`https://api.typesafe.ai/v1`, model
 ## CLI
 
 ```
-reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--format summary|json]
-              [--log FILE [--log-tag KEY=VALUE]...]
+reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]...
+              [--format summary|json] [--log FILE [--log-tag KEY=VALUE]...]
+reqfile eval [--only ID,...] [--use LOCATION]...
+reqfile example add <ID> <NAME> --expected violation|ok [--finding FILE]... [--rationale TEXT] <FILE>...
 reqfile explain <PATH>
 reqfile list [--kind product|code|process] [--format summary|json]
-reqfile test [--only ID,...]
-reqfile add <LOCATION> [ID]...
+reqfile add <LOCATION> [ID]... [--dry-run]
+reqfile update [--dry-run]
 ```
 
 - `--changed` checks everything a change since the merge-base of BASE and HEAD
@@ -359,12 +426,33 @@ reqfile add <LOCATION> [ID]...
 - `list` lists every requirement of the repository with its type, the types of
   its checks and, for a use block, its source; `--format json` gives the same
   as data.
-- `test` runs each requirement's checks on its labeled examples (above).
-- `add` shows the use blocks taking requirements from a location (above).
+- `--use` adds the requirements of a location for this run (above).
+- `eval` measures each requirement's checks on its labeled examples (above);
+  `test` is its former name, kept as an alias for one version.
+- `example add` turns files of the repository into a labeled example (above).
+- `add` writes use blocks pinned to a commit, `update` moves the pins (above).
 
 Every finding of a requirement taken with `use` names its use block and where
-its definition was resolved; the summary lists the commit every ref resolved
-to.
+its definition was resolved; the summary lists the commit every tag given to
+`--use` resolved to.
+
+Requirements will contradict each other. For each violation and advisory
+finding, reqfile asks Jev whether making the fix it asks for would break
+another requirement that applies to the same file; each one it would break
+above 0.7 is listed under the finding (`breaks: CORE (p=0.90)`), and the
+summary groups them by pair of requirements as decisions to make:
+
+```
+decide  COLOCATION vs FUNCTIONAL_CORE  p=0.85  fixing COLOCATION in 4 files would break FUNCTIONAL_CORE
+    src/core/cache.rs, …
+    Reword one of the two requirements, or say which one wins where they meet.
+```
+
+A contradiction is a product decision, not a fix: an agent would undo one fix
+with the next. JSON marks each finding's `conflicts` so hooks can send them to
+a human. Answers share the decision cache and go to the run log; without a Jev
+key the summary says conflicts were not checked, and failing to ask never
+changes the exit code.
 
 Exit codes: `0` when every blocking check ran and found no blocking violation,
 `1` on blocking violations, `3` on any config error or any error in a blocking
@@ -396,7 +484,7 @@ jobs:
       - run: reqfile check
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      - run: reqfile test
+      - run: reqfile eval
 ```
 
 **With Claude Code**, as a Stop hook that sends violations back to the agent
@@ -417,7 +505,9 @@ With `--fast`, only decision checks (advisory unless blocking) and the command
 checks declared `fast: true` run, so the hook blocks only on those; declare
 quick commands `fast`. The `stop_hook_active` guard lets the agent stop after
 one forced retry, which avoids infinite loops but allows finishing with
-violations left. CI remains the gate.
+violations left. CI remains the gate. When the output holds `decide` lines,
+tell the agent not to fix the findings marked `breaks:` but to ask you: they
+contradict another requirement.
 
 **In AGENTS.md**:
 
@@ -441,10 +531,10 @@ tests local git repositories, so the suite runs offline.
 ```sh
 cargo test
 reqfile check
-reqfile test
+reqfile eval
 ```
 
 CI (`.github/check.sh`, run for every pull request and before every release)
 compiles the tests with `cargo test --no-run --locked` before running `cargo
-test --locked`, `reqfile check` and `reqfile test`, so cold builds and Cargo's
+test --locked`, `reqfile check` and `reqfile eval`, so cold builds and Cargo's
 build lock cannot exhaust a check's timeout.

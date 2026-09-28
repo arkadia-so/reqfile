@@ -1,5 +1,6 @@
-//! IMPORTS: use blocks take a requirement by reference from a folder or a
-//! repository pinned to a tag or commit, checked as if declared where used.
+//! PACKAGES: use blocks take a requirement by reference from a folder or a
+//! repository pinned to a commit, fetched once into the user's cache, or try
+//! it for one run with `--use`, checked as if declared where used.
 
 use std::path::{Path, PathBuf};
 
@@ -82,7 +83,7 @@ fn canonical(path: &Path) -> PathBuf {
 #[test]
 fn a_use_block_resolves_to_the_definition_with_its_id_at_its_location() {
     let remotes = remotes!();
-    acme(
+    let (_, commits) = acme(
         &remotes,
         &[(
             "v1",
@@ -95,7 +96,7 @@ fn a_use_block_resolves_to_the_definition_with_its_id_at_its_location() {
     let repo = consumer(&remotes);
     repo.write(
         "Reqfile.yaml",
-        &use_block("code", "NO_TODO", "acme/reqs@v1"),
+        &use_block("code", "NO_TODO", &format!("acme/reqs@{}", commits[0])),
     );
     repo.write("a.txt", "");
 
@@ -186,11 +187,11 @@ fn a_use_block_is_never_a_resolution_target() {
     );
     source.write("std/Reqfile.yaml", &reqfile(&[("FAIL_FAST", &say("Q1"))]));
     source.commit("s1");
-    source.git(&["tag", "v1"]);
+    let commit = source.head();
     let repo = consumer(&remotes);
     repo.write(
         "Reqfile.yaml",
-        &use_block("code", "FAIL_FAST", "acme/reqs@v1"),
+        &use_block("code", "FAIL_FAST", &format!("acme/reqs@{commit}")),
     );
 
     let run = repo.run(&["check"]);
@@ -199,8 +200,9 @@ fn a_use_block_is_never_a_resolution_target() {
     assert!(run.stdout.contains("FAIL_FAST  Q1"), "{}", run.stdout);
     assert!(!run.stdout.contains("QX"), "{}", run.stdout);
     assert!(
-        run.stdout
-            .contains("use acme/reqs@v1 (std/Reqfile.yaml:3 at commit"),
+        run.stdout.contains(&format!(
+            "use acme/reqs@{commit} (std/Reqfile.yaml:3 at commit"
+        )),
         "{}",
         run.stdout
     );
@@ -283,11 +285,11 @@ fn source_discovery_honors_the_sources_exclusions() {
     );
     source.write(".reqfile/config.yaml", "exclude: [\"vendor/**\"]\n");
     source.commit("s1");
-    source.git(&["tag", "v1"]);
+    let commit = source.head();
     let repo = consumer(&remotes);
     repo.write(
         "Reqfile.yaml",
-        "reqfile: 1\ncode:\n  - { id: KEPT, use: acme/reqs@v1 }\n",
+        &format!("reqfile: 1\ncode:\n  - {{ id: KEPT, use: acme/reqs@{commit} }}\n"),
     );
 
     let run = repo.run(&["check"]);
@@ -297,7 +299,7 @@ fn source_discovery_honors_the_sources_exclusions() {
 
     repo.write(
         "Reqfile.yaml",
-        "reqfile: 1\ncode:\n  - { id: VENDORED, use: acme/reqs@v1 }\n",
+        &format!("reqfile: 1\ncode:\n  - {{ id: VENDORED, use: acme/reqs@{commit} }}\n"),
     );
 
     let run = repo.run(&["check"]);
@@ -305,8 +307,7 @@ fn source_discovery_honors_the_sources_exclusions() {
     assert_eq!(run.code, 3, "{}", run.output());
     assert!(
         run.stdout.contains(&format!(
-            "`use: acme/reqs@v1`: no Reqfile at or under the root of acme/reqs at commit {} defines VENDORED",
-            source.head()
+            "`use: acme/reqs@{commit}`: no Reqfile at or under the root of acme/reqs at commit {commit} defines VENDORED"
         )),
         "{}",
         run.stdout
@@ -329,11 +330,11 @@ fn source_settings_are_never_used_as_settings() {
         ),
     );
     source.commit("s1");
-    source.git(&["tag", "v1"]);
+    let commit = source.head();
     let repo = consumer(&remotes);
     repo.write(
         "Reqfile.yaml",
-        &use_block("code", "FAIL_FAST", "acme/reqs@v1"),
+        &use_block("code", "FAIL_FAST", &format!("acme/reqs@{commit}")),
     );
     repo.write(
         ".reqfile/config.yaml",
@@ -364,15 +365,15 @@ fn source_settings_are_never_used_as_settings() {
 }
 
 #[test]
-fn branch_names_short_ids_and_head_are_rejected_as_refs() {
+fn tags_branch_names_short_ids_and_head_are_rejected_as_pins() {
     let remotes = remotes!();
     acme(&remotes, &[("v1", &reqfile(&[("RULE", &say("ran"))]))]);
     let repo = consumer(&remotes);
 
     for (reference, message) in [
         (
-            "main",
-            "has no tag main; pin requirements to a tag or a full commit id, never a branch",
+            "v1",
+            "`use: acme/reqs@v1` is pinned to a tag, which can move; a Reqfile pins a repository to a full commit id. `reqfile add acme/reqs@v1` writes the line pinned to the commit v1 points to",
         ),
         ("3f2a9c1", "`3f2a9c1` looks like a short commit id"),
         ("HEAD", "`HEAD` is not a tag or a full commit id"),
@@ -387,12 +388,24 @@ fn branch_names_short_ids_and_head_are_rejected_as_refs() {
         assert_eq!(run.code, 3, "{reference}: {}", run.output());
         assert!(run.stdout.contains(message), "{reference}: {}", run.stdout);
     }
+
+    // A branch is not a tag, even where tags are welcome.
+    std::fs::remove_file(repo.path().join("Reqfile.yaml")).expect("remove");
+    let run = repo.run(&["add", "acme/reqs@main"]);
+    assert_eq!(run.code, 3, "{}", run.output());
+    assert!(
+        run.stderr.contains(
+            "has no tag main; pin requirements to a tag or a full commit id, never a branch"
+        ),
+        "{}",
+        run.stderr
+    );
 }
 
 #[test]
 fn a_tag_resolves_through_refs_tags_even_if_a_branch_has_the_same_name() {
     let remotes = remotes!();
-    let (source, _) = acme(
+    let (source, commits) = acme(
         &remotes,
         &[("release", &reqfile(&[("RULE", &say("tagged"))]))],
     );
@@ -401,16 +414,19 @@ fn a_tag_resolves_through_refs_tags_even_if_a_branch_has_the_same_name() {
         .write("Reqfile.yaml", &reqfile(&[("RULE", &say("branch"))]))
         .commit("on the branch");
     let repo = consumer(&remotes);
-    repo.write(
-        "Reqfile.yaml",
-        &use_block("code", "RULE", "acme/reqs@release"),
-    );
 
+    let add = repo.run(&["add", "acme/reqs@release"]);
+    assert_eq!(add.code, 0, "{}", add.output());
     let run = repo.run(&["check"]);
 
     assert_eq!(run.code, 1, "{}", run.output());
     assert!(run.stdout.contains("RULE  tagged"), "{}", run.stdout);
     assert!(!run.stdout.contains("RULE  branch"), "{}", run.stdout);
+    let written = std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("Reqfile");
+    assert!(
+        written.contains(&format!("use: acme/reqs@{} }}  # release", commits[0])),
+        "{written}"
+    );
 }
 
 #[test]
@@ -437,28 +453,27 @@ fn a_missing_commit_is_an_error_naming_the_source() {
 }
 
 #[test]
-fn each_run_reports_the_commit_every_ref_resolved_to() {
-    // The same id at two versions: the root at v1, services/api at v2.
+fn every_use_block_is_explained_with_the_commit_it_is_pinned_to() {
+    // The same id at two versions: the root at S1, services/api at S2.
     let jev = FakeJev::by_marker();
     let remotes = remotes!();
     let definition = reqfile(&[("FAIL_FAST", "- decision")]);
     let source = remotes.repo("acme/reqs");
     let mut commits = Vec::new();
-    for (tag, question) in [("v1", "Q1?"), ("v2", "Q2?")] {
+    for question in ["Q1?", "Q2?"] {
         source.write("Reqfile.yaml", &definition);
         source.write(".reqfile/FAIL_FAST/decision.yaml", &asking(question));
-        source.commit(tag);
-        source.git(&["tag", tag]);
+        source.commit(question);
         commits.push(source.head());
     }
     let repo = consumer(&remotes);
     repo.write(
         "Reqfile.yaml",
-        &use_block("code", "FAIL_FAST", "acme/reqs@v1"),
+        &use_block("code", "FAIL_FAST", &format!("acme/reqs@{}", commits[0])),
     );
     repo.write(
         "services/api/Reqfile.yaml",
-        &use_block("code", "FAIL_FAST", "acme/reqs@v2"),
+        &use_block("code", "FAIL_FAST", &format!("acme/reqs@{}", commits[1])),
     );
     repo.write(".reqfile/config.yaml", &jev.config());
     repo.write("a.py", "def f():\n    pass  # VIOLATION\n");
@@ -468,16 +483,9 @@ fn each_run_reports_the_commit_every_ref_resolved_to() {
     let run = repo.run(&["check"]);
 
     assert_eq!(run.code, 0, "{}", run.output());
-    for (tag, commit) in ["v1", "v2"].iter().zip(&commits) {
-        assert!(
-            run.stdout.contains(&format!(
-                "source  acme/reqs@{tag} resolved to commit {commit}\n"
-            )),
-            "{}",
-            run.stdout
-        );
-    }
     assert!(run.stdout.contains("2 advisory findings"), "{}", run.stdout);
+    // A commit says what it is: no source line to report.
+    assert!(!run.stdout.contains("source  "), "{}", run.stdout);
     assert_eq!(
         asked(&jev, "FAIL_FAST"),
         vec![
@@ -485,15 +493,11 @@ fn each_run_reports_the_commit_every_ref_resolved_to() {
             ("services/api/b.py".to_string(), "Q2?".to_string()),
         ]
     );
-    let json = repo.run(&["check", "--format", "json"]).json();
-    assert_eq!(json["sources"][0]["location"], "acme/reqs@v1");
-    assert_eq!(json["sources"][0]["commit"], commits[0].as_str());
-    assert_eq!(json["sources"][0]["offline"], false);
     let explain = repo.run(&["explain", "services/api/b.py"]);
     assert!(
         explain.stdout.contains(&format!(
-            "From services/api/Reqfile.yaml:\n  FAIL_FAST (code)\n    must: Something.\n    why: A reason.\n    use: acme/reqs@v2 (Reqfile.yaml:3 at commit {})",
-            commits[1]
+            "From services/api/Reqfile.yaml:\n  FAIL_FAST (code)\n    must: Something.\n    why: A reason.\n    use: acme/reqs@{c} (Reqfile.yaml:3 at commit {c})",
+            c = commits[1]
         )),
         "{}",
         explain.stdout
@@ -501,7 +505,7 @@ fn each_run_reports_the_commit_every_ref_resolved_to() {
 }
 
 #[test]
-fn tags_are_resolved_again_on_each_run_and_the_cache_is_used_only_offline() {
+fn check_use_resolves_its_tag_on_each_run_and_the_cache_only_offline() {
     let remotes = remotes!();
     let (source, commits) = acme(
         &remotes,
@@ -511,14 +515,13 @@ fn tags_are_resolved_again_on_each_run_and_the_cache_is_used_only_offline() {
         ],
     );
     let repo = consumer(&remotes);
-    repo.write("Reqfile.yaml", &use_block("code", "RULE", "acme/reqs@v1"));
 
-    let run = repo.run(&["check"]);
+    let run = repo.run(&["check", "--use", "acme/reqs@v1"]);
     assert!(run.stdout.contains("RULE  first"), "{}", run.stdout);
 
     source.git(&["tag", "-f", "v1", &commits[1]]);
 
-    let run = repo.run(&["check"]);
+    let run = repo.run(&["check", "--use", "acme/reqs@v1"]);
     assert!(run.stdout.contains("RULE  second"), "{}", run.stdout);
     assert!(
         run.stdout.contains(&format!(
@@ -532,7 +535,7 @@ fn tags_are_resolved_again_on_each_run_and_the_cache_is_used_only_offline() {
     let path = remotes.base().join("acme/reqs");
     std::fs::rename(&path, remotes.base().join("acme/gone")).expect("take the remote away");
 
-    let run = repo.run(&["check"]);
+    let run = repo.run(&["check", "--use", "acme/reqs@v1"]);
 
     assert_eq!(run.code, 1, "{}", run.output());
     assert!(run.stdout.contains("RULE  second"), "{}", run.stdout);
@@ -544,14 +547,16 @@ fn tags_are_resolved_again_on_each_run_and_the_cache_is_used_only_offline() {
         "{}",
         run.stdout
     );
-    let json = repo.run(&["check", "--format", "json"]).json();
+    let json = repo
+        .run(&["check", "--use", "acme/reqs@v1", "--format", "json"])
+        .json();
     assert_eq!(json["sources"][0]["offline"], true);
 }
 
 #[test]
 fn imported_checks_run_in_the_folder_of_the_use_block() {
     let remotes = remotes!();
-    acme(
+    let (_, commits) = acme(
         &remotes,
         &[(
             "v1",
@@ -564,7 +569,7 @@ fn imported_checks_run_in_the_folder_of_the_use_block() {
     let repo = consumer(&remotes);
     repo.write(
         "app/Reqfile.yaml",
-        &use_block("code", "RULE", "acme/reqs@v1"),
+        &use_block("code", "RULE", &format!("acme/reqs@{}", commits[0])),
     );
     repo.write("app/x.txt", "").write("top.txt", "");
 
@@ -648,9 +653,12 @@ fn reqfile_assets_points_to_the_definitions_folder_for_inherited_checks() {
     );
     source.write(".reqfile/RULE/marker", "from the source\n");
     source.commit("s1");
-    source.git(&["tag", "v1"]);
+    let commit = source.head();
     let repo = consumer(&remotes);
-    repo.write("Reqfile.yaml", &use_block("code", "RULE", "acme/reqs@v1"));
+    repo.write(
+        "Reqfile.yaml",
+        &use_block("code", "RULE", &format!("acme/reqs@{commit}")),
+    );
 
     let run = repo.run(&["check"]);
 
@@ -885,7 +893,7 @@ fn acme_with_every_type(remotes: &Remotes) -> String {
 }
 
 #[test]
-fn add_prints_use_blocks_under_the_matching_section_and_runs_nothing() {
+fn add_writes_the_use_blocks_pinned_to_the_commit_with_the_tag_as_a_comment() {
     let remotes = remotes!();
     let commit = acme_with_every_type(&remotes);
     let repo = consumer(&remotes);
@@ -898,19 +906,37 @@ fn add_prints_use_blocks_under_the_matching_section_and_runs_nothing() {
         run.stdout,
         format!(
             "acme/reqs@v1 resolved to commit {commit}.\n\
-             \nAdd to app/Reqfile.yaml:\n\
-             \ncode:\n  - {{ id: NO_TODO, use: acme/reqs@v1 }}\n\
-             \nprocess:\n  - {{ id: REVIEWED, use: acme/reqs@v1 }}\n\
+             \nAdded to app/Reqfile.yaml:\n\
+             \ncode:\n  - {{ id: NO_TODO, use: acme/reqs@{commit} }}  # v1\n\
+             \nprocess:\n  - {{ id: REVIEWED, use: acme/reqs@{commit} }}  # v1\n\
              \nTheir checks will run, in the folder of that Reqfile:\n  NO_TODO  command: touch ran-marker\n  REVIEWED  command: touch ran-marker\n\
-             \nThen verify them on their examples and on this code:\n  reqfile test --only NO_TODO,REVIEWED\n  reqfile check --only NO_TODO,REVIEWED\n"
+             \nThen measure them on their examples and check this code:\n  reqfile eval --only NO_TODO,REVIEWED\n  reqfile check --only NO_TODO,REVIEWED\n"
         )
     );
-    assert!(!repo.path().join("app/Reqfile.yaml").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("app/Reqfile.yaml")).expect("written"),
+        format!(
+            "reqfile: 1\n\ncode:\n  - {{ id: NO_TODO, use: acme/reqs@{commit} }}  # v1\n\nprocess:\n  - {{ id: REVIEWED, use: acme/reqs@{commit} }}  # v1\n"
+        )
+    );
+    // Nothing ran.
     assert!(!repo.path().join("app/ran-marker").exists());
     assert!(!repo.path().join("ran-marker").exists());
+    // The Reqfile it wrote is checked as written.
+    let check = repo.run_in("app", &["check"]);
+    assert_eq!(check.code, 0, "{}", check.output());
+
+    let again = repo.run_in("app", &["add", "acme/reqs@v1", "NO_TODO"]);
+    assert_eq!(again.code, 3, "{}", again.output());
+    assert!(
+        again
+            .stderr
+            .contains("app/Reqfile.yaml already has NO_TODO"),
+        "{}",
+        again.stderr
+    );
 
     let run = repo.run_in("app", &["add", "acme/reqs@v1", "FAST"]);
-
     assert_eq!(run.code, 3, "{}", run.output());
     assert!(
         run.stderr.contains("FAST is a product requirement"),
@@ -920,38 +946,262 @@ fn add_prints_use_blocks_under_the_matching_section_and_runs_nothing() {
 }
 
 #[test]
-fn add_without_ids_adds_every_importable_definition_of_the_location() {
+fn add_inserts_into_an_existing_reqfile_keeping_what_is_written_there() {
     let remotes = remotes!();
-    acme_with_every_type(&remotes);
+    let commit = acme_with_every_type(&remotes);
+    let repo = consumer(&remotes);
+    let before = "reqfile: 1\n\n# Our rules\ncode:\n  - id: OURS\n    must: Ours.\n    why: Why.\n    checks:\n      - command:\n          run: \"true\"\n          fix_hint: x\n";
+    repo.write("Reqfile.yaml", before);
+
+    let run = repo.run(&["add", "acme/reqs@v1", "NO_TODO"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("written"),
+        format!("{before}  - {{ id: NO_TODO, use: acme/reqs@{commit} }}  # v1\n")
+    );
+}
+
+#[test]
+fn add_dry_run_shows_the_use_blocks_and_writes_nothing() {
+    let remotes = remotes!();
+    let commit = acme_with_every_type(&remotes);
     let repo = consumer(&remotes);
 
-    let run = repo.run(&["add", "acme/reqs@v1"]);
+    let run = repo.run(&["add", "acme/reqs@v1", "--dry-run"]);
 
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
-        run.stdout
-            .contains("\ncode:\n  - { id: NO_TODO, use: acme/reqs@v1 }\n"),
+        run.stdout.contains("\nAdd to Reqfile.yaml:\n"),
         "{}",
         run.stdout
     );
     assert!(
-        run.stdout
-            .contains("\nprocess:\n  - { id: REVIEWED, use: acme/reqs@v1 }\n"),
+        run.stdout.contains(&format!(
+            "\ncode:\n  - {{ id: NO_TODO, use: acme/reqs@{commit} }}  # v1\n"
+        )),
         "{}",
         run.stdout
     );
     assert!(!run.stdout.contains("FAST"), "{}", run.stdout);
+    assert!(!repo.path().join("Reqfile.yaml").exists());
 
-    // A folder: relative to the current folder.
+    // A folder: relative to the current folder, no pin.
     repo.write("lib/Reqfile.yaml", &reqfile(&[("LOCAL_RULE", &say("ran"))]));
     repo.write("app/main.txt", "");
-
-    let run = repo.run_in("app", &["add", "../lib"]);
-
+    let run = repo.run_in("app", &["add", "../lib", "--dry-run"]);
     assert_eq!(run.code, 0, "{}", run.output());
     assert!(
         run.stdout
             .contains("\ncode:\n  - { id: LOCAL_RULE, use: ../lib }\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn update_moves_use_blocks_to_their_latest_release_tag() {
+    let remotes = remotes!();
+    let (source, commits) = acme(
+        &remotes,
+        &[
+            ("v1.9.0", &reqfile(&[("RULE", &say("old"))])),
+            ("v1.10.0", &reqfile(&[("RULE", &say("new"))])),
+        ],
+    );
+    source
+        .write("Reqfile.yaml", &reqfile(&[("RULE", &say("unreleased"))]))
+        .commit("wip");
+    source.git(&["tag", "nightly"]);
+    let repo = consumer(&remotes);
+    repo.write(
+        "Reqfile.yaml",
+        &format!(
+            "reqfile: 1\ncode:\n  - {{ id: RULE, use: acme/reqs@{} }}  # v1.9.0\n",
+            commits[0]
+        ),
+    );
+
+    let dry = repo.run(&["update", "--dry-run"]);
+    assert_eq!(dry.code, 0, "{}", dry.output());
+    assert!(
+        dry.stdout
+            .contains("Would move:\n  Reqfile.yaml:3  acme/reqs  v1.9.0 -> v1.10.0\n"),
+        "{}",
+        dry.stdout
+    );
+    assert!(
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml"))
+            .expect("r")
+            .contains(&commits[0])
+    );
+
+    let run = repo.run(&["update"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("written"),
+        format!(
+            "reqfile: 1\ncode:\n  - {{ id: RULE, use: acme/reqs@{} }}  # v1.10.0\n",
+            commits[1]
+        )
+    );
+    let check = repo.run(&["check"]);
+    assert!(check.stdout.contains("RULE  new"), "{}", check.stdout);
+
+    let again = repo.run(&["update"]);
+    assert!(
+        again
+            .stdout
+            .contains("Every pinned repository is at its latest release."),
+        "{}",
+        again.stdout
+    );
+}
+
+#[test]
+fn a_fetched_commit_is_checked_without_network_access() {
+    let remotes = remotes!();
+    let (_, commits) = acme(&remotes, &[("v1", &reqfile(&[("RULE", &say("ran"))]))]);
+    let repo = consumer(&remotes);
+    repo.write(
+        "Reqfile.yaml",
+        &use_block("code", "RULE", &format!("acme/reqs@{}", commits[0])),
+    );
+    assert!(repo.run(&["check"]).stdout.contains("RULE  ran"));
+
+    std::fs::rename(
+        remotes.base().join("acme/reqs"),
+        remotes.base().join("acme/gone"),
+    )
+    .expect("take the remote away");
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(run.stdout.contains("RULE  ran"), "{}", run.stdout);
+}
+
+#[test]
+fn sources_are_cached_per_user_by_commit_and_shared_across_repositories() {
+    let remotes = remotes!();
+    let (_, commits) = acme(&remotes, &[("v1", &reqfile(&[("RULE", &say("ran"))]))]);
+    let first = consumer(&remotes);
+    let second = consumer(&remotes);
+    let reqfile_text = use_block("code", "RULE", &format!("acme/reqs@{}", commits[0]));
+    first.write("Reqfile.yaml", &reqfile_text);
+    second.write("Reqfile.yaml", &reqfile_text);
+    let shared = first.cache().to_string_lossy().into_owned();
+    second.env("REQFILE_CACHE", &shared);
+
+    assert!(first.run(&["check"]).stdout.contains("RULE  ran"));
+    assert!(
+        first
+            .cache()
+            .join(format!("sources/commits/{}", commits[0]))
+            .is_dir()
+    );
+    // Nothing inside the repository: no tracked or untracked file appears.
+    assert!(!first.path().join(".git/reqfile/sources").exists());
+    std::fs::rename(
+        remotes.base().join("acme/reqs"),
+        remotes.base().join("acme/gone"),
+    )
+    .expect("take the remote away");
+
+    let run = second.run(&["check"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(run.stdout.contains("RULE  ran"), "{}", run.stdout);
+}
+
+#[test]
+fn check_use_runs_a_location_for_one_run_without_writing_anything() {
+    let remotes = remotes!();
+    acme_with_every_type(&remotes);
+    let repo = consumer(&remotes);
+    repo.write("Reqfile.yaml", &reqfile(&[("OURS", &say("ours ran"))]));
+
+    let run = repo.run(&["check", "--use", "acme/reqs@v1", "--only", "NO_TODO"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(repo.path().join("ran-marker").exists(), "NO_TODO ran");
+    assert!(!run.stdout.contains("ours ran"), "{}", run.stdout);
+    assert!(
+        run.stdout
+            .contains("source  acme/reqs@v1 resolved to commit"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !std::fs::read_to_string(repo.path().join("Reqfile.yaml"))
+            .expect("r")
+            .contains("NO_TODO")
+    );
+
+    repo.write("Reqfile.yaml", &reqfile(&[("NO_TODO", &say("ours"))]));
+    let clash = repo.run(&["check", "--use", "acme/reqs@v1", "--only", "NO_TODO"]);
+    assert_eq!(clash.code, 3, "{}", clash.output());
+    assert!(
+        clash
+            .stdout
+            .contains("--use acme/reqs@v1: NO_TODO is already required here"),
+        "{}",
+        clash.stdout
+    );
+}
+
+#[test]
+fn check_use_takes_a_local_folder_so_authors_try_unpublished_packages() {
+    let package = repo!();
+    package.write(
+        "Reqfile.yaml",
+        &reqfile(&[("DRAFT", &list_files("DRAFT got"))]),
+    );
+    let repo = repo!();
+    repo.write("a.txt", "");
+    let path = package.path().to_string_lossy().into_owned();
+
+    // Outside the repository: a local folder must be inside it.
+    let outside = repo.run(&["check", "--use", &path]);
+    assert_eq!(outside.code, 3, "{}", outside.output());
+
+    repo.write(
+        "vendor/draft/Reqfile.yaml",
+        &reqfile(&[("DRAFT", &list_files("DRAFT got"))]),
+    );
+    let run = repo.run(&["check", "--use", "./vendor/draft"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains("DRAFT  DRAFT got a.txt"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn eval_use_measures_a_package_on_its_examples_before_adopting_it() {
+    let remotes = remotes!();
+    let source = remotes.repo("acme/reqs");
+    source.write(
+        "Reqfile.yaml",
+        &reqfile(&[("NO_TODO", &list_files("NO_TODO got"))]),
+    );
+    source.write(
+        ".reqfile/NO_TODO/examples/todo/example.yaml",
+        "expected: violation\n",
+    );
+    source.write(".reqfile/NO_TODO/examples/todo/files/a.txt", "TODO\n");
+    source.commit("s1");
+    source.git(&["tag", "v1"]);
+    let repo = consumer(&remotes);
+
+    let run = repo.run(&["eval", "--use", "acme/reqs@v1"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("NO_TODO  asserted: 1 examples, 1 as labeled"),
         "{}",
         run.stdout
     );

@@ -3,10 +3,13 @@
 pub mod cache;
 pub mod command;
 pub mod config;
+pub mod conflict;
 pub mod decision;
 pub mod error;
 pub mod examples;
+pub mod junit;
 pub mod paths;
+pub mod pins;
 pub mod plan;
 pub mod report;
 pub mod reqfile;

@@ -336,3 +336,82 @@ fn process_is_a_requirement_type_next_to_product_and_code() {
         run.stdout
     );
 }
+
+/// A repository whose one requirement has one example, `example.yaml`
+/// holding `yaml`, with `notes.txt` in `files/` unless `files` is false.
+fn example_repo(yaml: &str, files: bool) -> reqfile_test_support::Repo {
+    let repo = reqfile_test_support::repo!();
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile_test_support::reqfile(&[(
+            "RULE",
+            "- command:\n    run: \"true\"\n    fix_hint: x",
+        )]),
+    );
+    repo.write(".reqfile/RULE/examples/case/example.yaml", yaml);
+    if files {
+        repo.write(".reqfile/RULE/examples/case/files/notes.txt", "text\n");
+    }
+    repo
+}
+
+fn eval_error(yaml: &str, files: bool) -> String {
+    let run = example_repo(yaml, files).run(&["eval"]);
+    assert_eq!(run.code, 3, "{}", run.output());
+    run.stderr
+}
+
+#[test]
+fn example_yaml_requires_expected_violation_or_ok() {
+    assert!(
+        eval_error("rationale: x\n", true).contains("example.yaml"),
+        "missing `expected`"
+    );
+    let unknown = eval_error("expected: maybe\n", true);
+    assert!(
+        unknown.contains(".reqfile/RULE/examples/case/example.yaml:1: unknown `expected: maybe`; expected `violation` or `ok`"),
+        "{unknown}"
+    );
+}
+
+#[test]
+fn example_yaml_rejects_unknown_keys_naming_file_and_line() {
+    let error = eval_error("expected: ok\nlabel: ok\n", true);
+    assert!(
+        error.contains(".reqfile/RULE/examples/case/example.yaml:2"),
+        "{error}"
+    );
+    assert!(error.contains("label"), "{error}");
+}
+
+#[test]
+fn example_without_a_files_folder_is_an_error() {
+    let error = eval_error("expected: ok\n", false);
+    assert!(
+        error.contains("an example holds its case in files/"),
+        "{error}"
+    );
+}
+
+#[test]
+fn expected_findings_must_name_files_inside_the_files_folder() {
+    let error = eval_error("expected: violation\nfindings: [missing.txt]\n", true);
+    assert!(
+        error.contains("expected finding missing.txt is not a file of files/"),
+        "{error}"
+    );
+    let on_ok = eval_error("expected: ok\nfindings: [notes.txt]\n", true);
+    assert!(on_ok.contains("an `ok` example has none"), "{on_ok}");
+}
+
+#[test]
+fn known_accepts_only_a_miss_for_a_violation_or_a_false_alarm_for_an_ok_example() {
+    let error = eval_error("expected: ok\nknown: miss\n", true);
+    assert!(
+        error.contains("`known: miss` does not fit `expected: ok`"),
+        "{error}"
+    );
+    let run =
+        example_repo("expected: ok\nknown: false_alarm\norigin: authored\n", true).run(&["eval"]);
+    assert_eq!(run.code, 0, "{}", run.output());
+}

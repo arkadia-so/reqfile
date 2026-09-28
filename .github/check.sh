@@ -6,4 +6,4 @@ cargo test --no-run --locked
 cargo test --locked
 # Use the binary just built, not a previously installed release.
 ./target/debug/reqfile check
-./target/debug/reqfile test
+./target/debug/reqfile eval

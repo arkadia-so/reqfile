@@ -10,6 +10,8 @@ pub struct SarifResult {
     pub message: String,
     pub file: Option<String>,
     pub line: Option<usize>,
+    /// The probability of violation the tool gave, if it gave one.
+    pub probability: Option<f64>,
 }
 
 pub struct Parsed {
@@ -40,6 +42,13 @@ struct ResultEntry {
     message: Message,
     #[serde(default)]
     locations: Vec<Location>,
+    #[serde(default)]
+    properties: Properties,
+}
+
+#[derive(Default, Deserialize)]
+struct Properties {
+    probability: Option<f64>,
 }
 
 #[derive(Default, Deserialize, PartialEq)]
@@ -115,12 +124,21 @@ pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Parsed, String> {
     let log: Log =
         serde_json::from_str(text).map_err(|e| format!("output is not valid SARIF: {e}"))?;
     let had_results = log.runs.iter().any(|run| !run.results.is_empty());
-    let violations = log
-        .runs
+    let results: Vec<ResultEntry> = log.runs.into_iter().flat_map(|run| run.results).collect();
+    if let Some(p) = results
+        .iter()
+        .filter_map(|r| r.properties.probability)
+        .find(|p| !(0.0..=1.0).contains(p))
+    {
+        return Err(format!(
+            "a SARIF result has probability {p}, outside 0 to 1"
+        ));
+    }
+    let violations = results
         .into_iter()
-        .flat_map(|run| run.results)
+        // A result with a probability is judged by it, whatever its kind.
         .filter(|result| {
-            result.kind == ResultKind::Fail
+            (result.kind == ResultKind::Fail || result.properties.probability.is_some())
                 && !result
                     .suppressions
                     .iter()
@@ -149,6 +167,7 @@ pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Parsed, String> {
                 message,
                 file,
                 line,
+                probability: result.properties.probability,
             }
         })
         .collect();
@@ -158,7 +177,7 @@ pub fn parse(text: &str, cwd: &str, repo_root: &str) -> Result<Parsed, String> {
     })
 }
 
-fn repository_path(uri: &str, cwd: &str, repo_root: &str) -> String {
+pub fn repository_path(uri: &str, cwd: &str, repo_root: &str) -> String {
     let path = percent_decode(uri.strip_prefix("file://").unwrap_or(uri));
     let root = repo_root.trim_end_matches('/');
     if let Some(inside) = path.strip_prefix(root).and_then(|p| p.strip_prefix('/')) {

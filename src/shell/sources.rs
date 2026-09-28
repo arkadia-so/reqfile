@@ -1,6 +1,7 @@
-//! Git sources of use blocks, `owner/repo@ref`: tags resolved on each run,
-//! commits fetched once into a cache shared by every worktree, addressed by
-//! commit id so runs in other worktrees can change cost, never results.
+//! Git sources, `owner/repo@ref`: a Reqfile pins them to a commit, fetched
+//! once into the user's cache and shared by every repository and worktree,
+//! addressed by commit id so other runs can change cost, never results. Tags,
+//! given to `reqfile add` or `--use`, are resolved on each use.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -25,12 +26,25 @@ pub struct Fetched {
     pub dir: PathBuf,
 }
 
-/// Resolves and fetches `repo` at `reference`. `root` is the repository
-/// being checked, whose git folder holds the cache.
-pub fn fetch(root: &Path, repo: &str, reference: &GitRef) -> Result<Fetched, String> {
-    let cache = git::common_dir(root)?.join("reqfile").join("sources");
-    let base = std::env::var(BASE_ENV).unwrap_or_else(|_| DEFAULT_BASE.to_string());
-    let url = format!("{}/{repo}", base.trim_end_matches('/'));
+/// The user's cache of sources: `$REQFILE_CACHE`, else
+/// `$XDG_CACHE_HOME/reqfile`, else `~/.cache/reqfile`, then `sources/`.
+pub fn cache_dir() -> Result<PathBuf, String> {
+    let env = |key: &str| {
+        std::env::var_os(key)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    let base = env("REQFILE_CACHE")
+        .or_else(|| env("XDG_CACHE_HOME").map(|d| d.join("reqfile")))
+        .or_else(|| env("HOME").map(|d| d.join(".cache").join("reqfile")))
+        .ok_or("cannot find a cache folder: set REQFILE_CACHE or HOME")?;
+    Ok(base.join("sources"))
+}
+
+/// Resolves and fetches `repo` at `reference` into the user's cache.
+pub fn fetch(repo: &str, reference: &GitRef) -> Result<Fetched, String> {
+    let cache = cache_dir()?;
+    let url = url(repo);
     let location = format!("{repo}@{}", reference.as_str());
     let (commit, offline) = match reference {
         GitRef::Commit(commit) => (commit.clone(), false),
@@ -47,6 +61,32 @@ pub fn fetch(root: &Path, repo: &str, reference: &GitRef) -> Result<Fetched, Str
         offline,
         dir,
     })
+}
+
+/// Where `owner/repo` is fetched from.
+fn url(repo: &str) -> String {
+    let base = std::env::var(BASE_ENV).unwrap_or_else(|_| DEFAULT_BASE.to_string());
+    format!("{}/{repo}", base.trim_end_matches('/'))
+}
+
+/// Every tag of `repo` with the commit it points to, asked to the remote.
+pub fn remote_tags(repo: &str) -> Result<Vec<(String, String)>, String> {
+    let url = url(repo);
+    let output = Command::new("git")
+        .args(["ls-remote", "--tags", &url])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cannot list the tags of {url}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(tags::all_in_listing(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 /// The commit a tag points to, asked to the remote on every run; the last
