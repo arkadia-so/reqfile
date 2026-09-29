@@ -18,6 +18,8 @@ pub struct Request {
     /// Files the checks should flag, relative to the current folder.
     pub findings: Vec<PathBuf>,
     pub rationale: Option<String>,
+    /// Kept out of tuning: `split: holdout`.
+    pub holdout: bool,
     /// Files and folders to copy, relative to the current folder.
     pub files: Vec<PathBuf>,
 }
@@ -113,6 +115,9 @@ pub fn run(cwd: &Path, request: &Request) -> Result<String, Vec<String>> {
     }
     if let Some(head) = git::head(&workspace.root) {
         yaml += &format!("origin: {}\n", quoted(&format!("real:{head}")));
+    }
+    if request.holdout {
+        yaml += "split: holdout\n";
     }
     let file = target.join(EXAMPLE_FILE);
     fs::write(&file, yaml).map_err(|e| one(format!("cannot write {dir}/{EXAMPLE_FILE}: {e}")))?;

@@ -385,6 +385,19 @@ fn example_yaml_rejects_unknown_keys_naming_file_and_line() {
 }
 
 #[test]
+fn split_accepts_only_tune_or_holdout() {
+    let error = eval_error("expected: ok\nsplit: test\n", true);
+    assert!(
+        error.contains(".reqfile/RULE/examples/case/example.yaml:2: unknown `split: test`; expected `tune` or `holdout`"),
+        "{error}"
+    );
+    for split in ["tune", "holdout"] {
+        let run = example_repo(&format!("expected: ok\nsplit: {split}\n"), true).run(&["eval"]);
+        assert_eq!(run.code, 0, "{}", run.output());
+    }
+}
+
+#[test]
 fn example_without_a_files_folder_is_an_error() {
     let error = eval_error("expected: ok\n", false);
     assert!(

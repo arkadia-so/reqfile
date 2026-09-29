@@ -1,6 +1,7 @@
 //! `reqfile eval`: runs each requirement's checks on its labeled examples,
 //! each case's `files/` alone in a fresh repository, the checks' own files
-//! reached only through `$REQFILE_ASSETS`.
+//! reached only through `$REQFILE_ASSETS`, as many times as asked so the
+//! variation of judgments shows.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,11 +15,13 @@ use crate::core::report::Report;
 use crate::core::reqfile::Check;
 use crate::core::resolve::{self, Assets, Effective};
 
-/// The report and exit code of `reqfile eval`, or the errors that prevent it.
+/// The report and exit code of `reqfile eval`, each case run `runs` times,
+/// or the errors that prevent it.
 pub fn run(
     cwd: &Path,
     only: Option<&[String]>,
     uses: &[String],
+    runs: usize,
 ) -> Result<(String, i32), Vec<String>> {
     let workspace = Workspace::load_trying(cwd, uses, only)?;
     if let Some(ids) = only {
@@ -47,22 +50,26 @@ pub fn run(
             }
             for (name, case) in sorted_dirs(&examples)? {
                 let example = read_example(&workspace, &case)?;
-                let outcome = match run_case(&workspace, block, &case.join(FILES_DIR)) {
-                    Ok(report) => {
-                        probabilistic |= report.findings.iter().any(|f| {
-                            f.requirement == block.id
-                                && f.probability.is_some()
-                                && f.model.is_none()
-                        });
-                        examples::outcome(&example, &block.id, &report)
-                    }
-                    Err(e) => Outcome::Error(e),
-                };
+                let mut outcomes = Vec::new();
+                for _ in 0..runs {
+                    outcomes.push(match run_case(&workspace, block, &case.join(FILES_DIR)) {
+                        Ok(report) => {
+                            probabilistic |= report.findings.iter().any(|f| {
+                                f.requirement == block.id
+                                    && f.probability.is_some()
+                                    && f.model.is_none()
+                            });
+                            examples::outcome(&example, &block.id, &report)
+                        }
+                        Err(e) => Outcome::Error(e),
+                    });
+                }
                 cases.push(Case {
                     name,
                     label: example.expected,
                     known: example.known,
-                    outcome,
+                    holdout: example.holdout,
+                    outcomes,
                 });
             }
         }
@@ -84,7 +91,7 @@ pub fn run(
             cases,
         });
     }
-    Ok(examples::render(&tested))
+    Ok(examples::render(&tested, runs))
 }
 
 /// Reads an example's `example.yaml`, checking that it has its case in

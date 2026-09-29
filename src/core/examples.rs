@@ -35,16 +35,27 @@ pub struct Example {
     /// Files, relative to `files/`, the checks should flag on a violation.
     pub findings: Vec<String>,
     pub known: Option<Known>,
+    /// `split: holdout`: kept out of tuning, so its rates say whether a
+    /// change to the checks generalizes or only fits the examples it was
+    /// made for.
+    pub holdout: bool,
 }
 
 /// Parses `example.yaml`: `expected` (`violation` or `ok`), and optionally
-/// `findings`, `rationale`, `origin` and `known`.
+/// `findings`, `rationale`, `origin`, `known` and `split`.
 pub fn parse(path: &str, text: &str) -> Result<Example, ConfigError> {
     let root = yaml::parse(path, text)?;
     let mut fields = root.fields(
         path,
         EXAMPLE_FILE,
-        &["expected", "findings", "rationale", "origin", "known"],
+        &[
+            "expected",
+            "findings",
+            "rationale",
+            "origin",
+            "known",
+            "split",
+        ],
     )?;
     let node = fields.required("expected")?;
     let line = node.line;
@@ -107,10 +118,28 @@ pub fn parse(path: &str, text: &str) -> Result<Example, ConfigError> {
             Some(known)
         }
     };
+    let holdout = match fields.optional("split") {
+        None => false,
+        Some(node) => {
+            let line = node.line;
+            match node.text(path, "split")?.as_str() {
+                "tune" => false,
+                "holdout" => true,
+                other => {
+                    return Err(ConfigError::at(
+                        path,
+                        line,
+                        format!("unknown `split: {other}`; expected `tune` or `holdout`"),
+                    ));
+                }
+            }
+        }
+    };
     Ok(Example {
         expected,
         findings,
         known,
+        holdout,
     })
 }
 
@@ -209,18 +238,81 @@ pub fn outcome(example: &Example, id: &str, report: &Report) -> Outcome {
     }
 }
 
-/// One example and what the checks showed on it.
+/// One example and what the checks showed on it, run after run.
 pub struct Case {
     pub name: String,
     pub label: Label,
     pub known: Option<Known>,
-    pub outcome: Outcome,
+    pub holdout: bool,
+    /// One outcome per run, at least one.
+    pub outcomes: Vec<Outcome>,
 }
 
 impl Case {
-    /// As labeled, or failing the way `known` says.
+    /// As labeled, or failing the way `known` says, on every run.
     fn accepted(&self) -> bool {
-        self.outcome.as_labeled() || self.known.is_some_and(|k| self.outcome.is(k))
+        self.outcomes
+            .iter()
+            .all(|o| o.as_labeled() || self.known.is_some_and(|k| o.is(k)))
+    }
+
+    /// Whether every run gave the same outcome.
+    fn stable(&self) -> bool {
+        self.outcomes.windows(2).all(|w| w[0] == w[1])
+    }
+
+    /// The outcome counted in the rates: the most frequent, and on a tie
+    /// the one that disagrees with the label, so noise never reads as a catch.
+    fn outcome(&self) -> &Outcome {
+        let times = |o: &Outcome| self.outcomes.iter().filter(|p| *p == o).count();
+        self.outcomes
+            .iter()
+            .max_by_key(|o| (times(o), !o.as_labeled()))
+            .expect("a case has at least one outcome")
+    }
+
+    /// The outcomes of an unstable case, most frequent first:
+    /// `caught 2, missed 1`.
+    fn spread(&self) -> String {
+        let mut seen: Vec<(String, usize)> = Vec::new();
+        for outcome in &self.outcomes {
+            let described = outcome.describe();
+            match seen.iter_mut().find(|(d, _)| *d == described) {
+                Some((_, n)) => *n += 1,
+                None => seen.push((described, 1)),
+            }
+        }
+        seen.sort_by(|a, b| b.1.cmp(&a.1));
+        seen.iter()
+            .map(|(d, n)| format!("{d} {n}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn render(&self) -> Option<String> {
+        let name = if self.holdout {
+            format!("{} (held out)", self.name)
+        } else {
+            self.name.clone()
+        };
+        let known = if self.accepted() { " (known)" } else { "" };
+        if !self.stable() {
+            return Some(format!(
+                "  {name}: unstable over {} runs: {}{known}\n",
+                self.outcomes.len(),
+                self.spread()
+            ));
+        }
+        let outcome = &self.outcomes[0];
+        match (outcome.as_labeled(), self.known.is_some()) {
+            (false, _) => Some(format!("  {name}: {}{known}\n", outcome.describe())),
+            // Known to fail, yet as labeled: the check improved.
+            (true, true) => Some(format!(
+                "  {name}: {}, as labeled now: remove `known`\n",
+                outcome.describe()
+            )),
+            (true, false) => None,
+        }
     }
 }
 
@@ -253,36 +345,39 @@ impl Tested {
     pub fn has_errors(&self) -> bool {
         self.cases
             .iter()
-            .any(|c| matches!(c.outcome, Outcome::Error(_)))
+            .any(|c| c.outcomes.iter().any(|o| matches!(o, Outcome::Error(_))))
+    }
+
+    fn unstable(&self) -> usize {
+        self.cases.iter().filter(|c| !c.stable()).count()
     }
 
     fn render(&self) -> String {
-        let count = |label: Label, outcome: fn(&Outcome) -> bool| {
-            self.cases
-                .iter()
-                .filter(|c| c.label == label && outcome(&c.outcome))
-                .count()
-        };
-        let total = |label: Label| self.cases.iter().filter(|c| c.label == label).count();
         let mut out = match self.evidence {
             Evidence::None => format!("{}  no evidence: no labeled examples\n", self.label),
+            // Held-out examples are reported apart: a change that raises the
+            // tuning rates alone fits its examples rather than the requirement.
+            Evidence::Measured if self.cases.iter().any(|c| c.holdout) => {
+                let (held, tuned): (Vec<&Case>, Vec<&Case>) =
+                    self.cases.iter().partition(|c| c.holdout);
+                format!(
+                    "{}  measured, no assertion\n  tuning: {}\n  held out: {}\n",
+                    self.label,
+                    rates(&tuned),
+                    rates(&held)
+                )
+            }
             Evidence::Measured => format!(
-                "{}  measured, no assertion: {} of {} violations caught ({} missed, {} not selected, {} uncertain); {} of {} correct examples flagged ({} uncertain)\n",
+                "{}  measured, no assertion: {}\n",
                 self.label,
-                count(Label::Violation, |o| *o == Outcome::Caught),
-                total(Label::Violation),
-                count(Label::Violation, |o| matches!(
-                    o,
-                    Outcome::Missed | Outcome::WrongFile(_)
-                )),
-                count(Label::Violation, |o| *o == Outcome::NotSelected),
-                count(Label::Violation, |o| *o == Outcome::Uncertain),
-                count(Label::Ok, |o| *o == Outcome::FalseAlarm),
-                total(Label::Ok),
-                count(Label::Ok, |o| *o == Outcome::Uncertain),
+                rates(&self.cases.iter().collect::<Vec<_>>())
             ),
             Evidence::Asserted => {
-                let as_labeled = self.cases.iter().filter(|c| c.outcome.as_labeled()).count();
+                let as_labeled = self
+                    .cases
+                    .iter()
+                    .filter(|c| c.outcomes.iter().all(Outcome::as_labeled))
+                    .count();
                 format!(
                     "{}  asserted: {} examples, {} as labeled\n",
                     self.label,
@@ -291,32 +386,72 @@ impl Tested {
                 )
             }
         };
-        for case in &self.cases {
-            match (case.outcome.as_labeled(), case.accepted()) {
-                (false, false) => out += &format!("  {}: {}\n", case.name, case.outcome.describe()),
-                (false, true) => {
-                    out += &format!("  {}: {} (known)\n", case.name, case.outcome.describe())
-                }
-                // Known to fail, yet as labeled: the check improved.
-                (true, _) if case.known.is_some() => {
-                    out += &format!(
-                        "  {}: {}, as labeled now: remove `known`\n",
-                        case.name,
-                        case.outcome.describe()
-                    )
-                }
-                (true, _) => {}
-            }
+        out.extend(self.cases.iter().filter_map(Case::render));
+        // Examples of one class only measure half of what a check does.
+        let has = |label: Label| self.cases.iter().any(|c| c.label == label);
+        if has(Label::Violation) && !has(Label::Ok) {
+            out += "  no correct examples: false alarms are not measured\n";
+        }
+        if has(Label::Ok) && !has(Label::Violation) {
+            out += "  no violation examples: catches are not measured\n";
         }
         out
     }
 }
 
-/// The report of `reqfile eval`, and its exit code: 3 if a case could not
-/// run, 1 if an asserted requirement disagreed with a label, 0 otherwise.
-/// Measured and absent evidence never fail: exit 0 does not mean a decision
-/// check works.
-pub fn render(tested: &[Tested]) -> (String, i32) {
+/// Detection rates on some cases: `4 of 5 violations caught (…); 0 of 6
+/// correct examples flagged (…)`.
+fn rates(cases: &[&Case]) -> String {
+    let count = |label: Label, outcome: fn(&Outcome) -> bool| {
+        cases
+            .iter()
+            .filter(|c| c.label == label && outcome(c.outcome()))
+            .count()
+    };
+    let total = |label: Label| cases.iter().filter(|c| c.label == label).count();
+    let caught = count(Label::Violation, |o| *o == Outcome::Caught);
+    let flagged = count(Label::Ok, |o| *o == Outcome::FalseAlarm);
+    format!(
+        "{caught} of {} violations caught ({}{} missed, {} not selected, {} uncertain); {flagged} of {} correct examples flagged ({}{} uncertain)",
+        total(Label::Violation),
+        interval(caught, total(Label::Violation)),
+        count(Label::Violation, |o| matches!(
+            o,
+            Outcome::Missed | Outcome::WrongFile(_)
+        )),
+        count(Label::Violation, |o| *o == Outcome::NotSelected),
+        count(Label::Violation, |o| *o == Outcome::Uncertain),
+        total(Label::Ok),
+        interval(flagged, total(Label::Ok)),
+        count(Label::Ok, |o| *o == Outcome::Uncertain),
+    )
+}
+
+/// The 95% Wilson interval of a rate of `k` in `n`, as `95% interval 41 to
+/// 93%; `, or nothing without cases: a handful of examples says little, and a
+/// change to the checks that stays inside it may be chance.
+fn interval(k: usize, n: usize) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let (k, n) = (k as f64, n as f64);
+    let z2 = 1.96_f64 * 1.96;
+    let rate = k / n;
+    let center = (rate + z2 / (2.0 * n)) / (1.0 + z2 / n);
+    let half = (z2 * (rate * (1.0 - rate) / n + z2 / (4.0 * n * n))).sqrt() / (1.0 + z2 / n);
+    let percent = |x: f64| (x.clamp(0.0, 1.0) * 100.0).round();
+    format!(
+        "95% interval {} to {}%; ",
+        percent(center - half),
+        percent(center + half)
+    )
+}
+
+/// The report of `reqfile eval` over `runs` runs of each case, and its exit
+/// code: 3 if a case could not run, 1 if an asserted requirement disagreed
+/// with a label on any run, 0 otherwise. Measured and absent evidence never
+/// fail: exit 0 does not mean a decision check works.
+pub fn render(tested: &[Tested], runs: usize) -> (String, i32) {
     let mut out: String = tested.iter().map(Tested::render).collect();
     let examples: usize = tested.iter().map(|t| t.cases.len()).sum();
     let failed = tested.iter().filter(|t| t.failed()).count();
@@ -324,8 +459,16 @@ pub fn render(tested: &[Tested]) -> (String, i32) {
     if !out.is_empty() {
         out.push('\n');
     }
+    // Cases whose outcome changes from run to run: the noise any change
+    // to the checks must exceed before it counts as an improvement.
+    let repeated = if runs > 1 {
+        let unstable: usize = tested.iter().map(Tested::unstable).sum();
+        format!(", {runs} runs each, {unstable} unstable")
+    } else {
+        String::new()
+    };
     out += &format!(
-        "{} requirements: {} asserted, {} measured, {} without evidence; {examples} examples. {failed} failing their labels.\n",
+        "{} requirements: {} asserted, {} measured, {} without evidence; {examples} examples{repeated}. {failed} failing their labels.\n",
         tested.len(),
         with(Evidence::Asserted),
         with(Evidence::Measured),

@@ -196,8 +196,31 @@ must match, or the run exits 1), `measured, no assertion` (a decision check or
 a command reporting probabilities: detection rates, exit 0 despite misses or
 false positives) or `no evidence` (no examples). Inspect the measurements, not only the exit code.
 Keep labels grounded in the requirement, include both classes, and examine
-unselected violations as well as false positives. Rerun the same examples
-before and after changes. Repeat model-based measurements to observe variation.
+unselected violations as well as false positives.
+
+To improve a measured check without fitting its examples:
+
+1. Before tuning, hold out about a third of each class with `split: holdout`
+   (`reqfile example add --holdout`). `reqfile eval` then reports the tuning
+   and held-out rates apart. Change the check looking only at tuning failures.
+2. Measure the noise: `reqfile eval --only ID --repeat 3` lists the cases whose
+   outcome changes between runs. A change counts only if it moves more cases
+   than are unstable, and beyond the 95% intervals `reqfile eval` prints.
+3. When a case fails, first reread its label against the `must`, above all
+   when the check was confident; fix a wrong label rather than the check.
+   Choose `thresholds` on tuning examples and confirm them on held-out ones.
+4. Make one change per round, aimed at the cause, and rerun. Revert a change
+   that raises the tuning rates but not the held-out ones. Never copy an
+   example's text, names or identifiers into a command, question or threshold.
+5. Stop when the rates plateau, and report the held-out rates.
+
+Choose new examples because a person judges them hard, and say why in
+`rationale` (near misses on both sides of the `must`, legitimate exceptions),
+not only because today's check fails them. Uncertain findings of `reqfile
+check` are where a decision check doubts: have a person label them and add them
+with `reqfile example add`. Keep both classes: without correct examples, false
+alarms are not measured. When every example is classified as
+labeled, the benchmark has no headroom left: add harder cases.
 
 `reqfile check --log FILE` records findings and judged source for investigation.
 Logs can contain repository source; store them according to the project's
