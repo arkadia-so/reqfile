@@ -22,6 +22,7 @@ pub fn run(
     only: Option<&[String]>,
     uses: &[String],
     runs: usize,
+    style: Option<&crate::core::pretty::Style>,
 ) -> Result<(String, i32), Vec<String>> {
     let workspace = Workspace::load_trying(cwd, uses, only)?;
     if let Some(ids) = only {
@@ -91,7 +92,10 @@ pub fn run(
             cases,
         });
     }
-    Ok(examples::render(&tested, runs))
+    Ok(match style {
+        Some(style) => examples::render_pretty(&tested, runs, style),
+        None => examples::render(&tested, runs),
+    })
 }
 
 /// Reads an example's `example.yaml`, checking that it has its case in

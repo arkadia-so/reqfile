@@ -1,0 +1,3 @@
+expected: ok
+rationale: The only test target is named by the check of the requirement it proves.
+origin: authored

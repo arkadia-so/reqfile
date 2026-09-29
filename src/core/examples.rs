@@ -4,6 +4,7 @@
 //! what running the checks on each case showed.
 
 use super::error::ConfigError;
+use super::pretty::{Style, plural};
 use super::report::{FindingKind, Report};
 use super::yaml;
 
@@ -282,7 +283,7 @@ impl Case {
                 None => seen.push((described, 1)),
             }
         }
-        seen.sort_by(|a, b| b.1.cmp(&a.1));
+        seen.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
         seen.iter()
             .map(|(d, n)| format!("{d} {n}"))
             .collect::<Vec<_>>()
@@ -481,5 +482,190 @@ pub fn render(tested: &[Tested], runs: usize) -> (String, i32) {
     } else {
         0
     };
+    (out, code)
+}
+
+/// `6/8 (41–93%)`: a rate and its 95% interval, compact.
+fn compact(k: usize, n: usize) -> String {
+    let interval = interval(k, n);
+    let bounds = interval
+        .strip_prefix("95% interval ")
+        .and_then(|rest| rest.strip_suffix("%; "))
+        .map(|b| format!(" ({}%)", b.replace(" to ", "–")))
+        .unwrap_or_default();
+    format!("{k}/{n}{bounds}")
+}
+
+/// `caught 6/8 (41–93%) · false alarms 1/9 (1–43%) · 1 uncertain`.
+fn compact_rates(cases: &[&Case]) -> String {
+    let count = |label: Label, outcome: fn(&Outcome) -> bool| {
+        cases
+            .iter()
+            .filter(|c| c.label == label && outcome(c.outcome()))
+            .count()
+    };
+    let total = |label: Label| cases.iter().filter(|c| c.label == label).count();
+    let mut parts = vec![
+        format!(
+            "caught {}",
+            compact(
+                count(Label::Violation, |o| *o == Outcome::Caught),
+                total(Label::Violation)
+            )
+        ),
+        format!(
+            "false alarms {}",
+            compact(
+                count(Label::Ok, |o| *o == Outcome::FalseAlarm),
+                total(Label::Ok)
+            )
+        ),
+    ];
+    let uncertain = count(Label::Violation, |o| *o == Outcome::Uncertain)
+        + count(Label::Ok, |o| *o == Outcome::Uncertain);
+    if uncertain > 0 {
+        parts.push(format!("{uncertain} uncertain"));
+    }
+    parts.join(" · ")
+}
+
+/// `reqfile eval` for people: one row per requirement, the cases that do
+/// not match their label under it, and a summary line. The exit code is
+/// the plain rendering's.
+pub fn render_pretty(tested: &[Tested], runs: usize, style: &Style) -> (String, i32) {
+    let (_, code) = render(tested, runs);
+    let width = tested
+        .iter()
+        .filter(|t| t.evidence != Evidence::None || style.verbose)
+        .map(|t| t.label.len())
+        .max()
+        .unwrap_or(0);
+    let examples: usize = tested.iter().map(|t| t.cases.len()).sum();
+    let mut out = style.bold(&format!(
+        "reqfile eval · {} · {}",
+        plural(tested.len(), "requirement", "requirements"),
+        plural(examples, "example", "examples")
+    ));
+    out += "\n\n";
+    let without: Vec<&str> = tested
+        .iter()
+        .filter(|t| t.evidence == Evidence::None)
+        .map(|t| t.label.as_str())
+        .collect();
+    for t in tested {
+        if t.evidence == Evidence::None && !style.verbose {
+            continue;
+        }
+        let all: Vec<&Case> = t.cases.iter().collect();
+        // Cases that could not run usually fail for one reason, such as a
+        // missing key: said once, the list stays readable.
+        let causes: Vec<&str> = t
+            .cases
+            .iter()
+            .flat_map(|c| &c.outcomes)
+            .filter_map(|o| match o {
+                Outcome::Error(e) => {
+                    Some(e.rsplit_once(": ").map_or(e.as_str(), |(_, cause)| cause))
+                }
+                _ => None,
+            })
+            .collect();
+        let one_cause = !causes.is_empty() && causes.iter().all(|c| *c == causes[0]);
+        let (mark, text) = if t.has_errors() {
+            let text = if one_cause {
+                format!("not run · {}", causes[0])
+            } else {
+                "cases could not run".to_string()
+            };
+            (style.magenta("!"), style.magenta(&text))
+        } else {
+            match t.evidence {
+                Evidence::None => (style.dim("–"), style.dim("no examples")),
+                Evidence::Asserted => {
+                    let labeled = t.cases.iter().filter(|c| c.accepted()).count();
+                    let text = format!("asserted · {labeled}/{} as labeled", t.cases.len());
+                    if t.failed() {
+                        (style.red("✗"), style.red(&text))
+                    } else {
+                        (style.green("✓"), style.green(&text))
+                    }
+                }
+                Evidence::Measured => (
+                    style.yellow("≈"),
+                    format!("{} · {}", style.yellow("measured"), compact_rates(&all)),
+                ),
+            }
+        };
+        out += &format!("  {mark} {:width$}  {text}\n", t.label);
+        if t.evidence == Evidence::Measured && t.cases.iter().any(|c| c.holdout) {
+            let (held, tuned): (Vec<&Case>, Vec<&Case>) = all.iter().partition(|c| c.holdout);
+            out += &format!(
+                "    {}\n",
+                style.dim(&format!("tuning    {}", compact_rates(&tuned)))
+            );
+            out += &format!(
+                "    {}\n",
+                style.dim(&format!("held out  {}", compact_rates(&held)))
+            );
+        }
+        let lines: Vec<String> = if one_cause && !style.verbose {
+            Vec::new()
+        } else {
+            t.cases.iter().filter_map(Case::render).collect()
+        };
+        let shown = if style.verbose {
+            lines.len()
+        } else {
+            lines.len().min(8)
+        };
+        for line in &lines[..shown] {
+            let line = line.trim_end().trim_start();
+            let painted = if t.evidence == Evidence::Asserted && !line.contains("(known)") {
+                style.red(line)
+            } else {
+                style.dim(line)
+            };
+            out += &format!("      {painted}\n");
+        }
+        if shown < lines.len() {
+            out += &format!(
+                "      {}\n",
+                style.dim(&format!("… {} more (reqfile eval -v)", lines.len() - shown))
+            );
+        }
+    }
+    if !without.is_empty() && !style.verbose {
+        out += &format!(
+            "  {} {}\n",
+            style.dim("–"),
+            style.dim(&format!("no examples: {}", without.join(", ")))
+        );
+    }
+    let failed = tested.iter().filter(|t| t.failed()).count();
+    let with = |evidence: Evidence| tested.iter().filter(|t| t.evidence == evidence).count();
+    let verdict = if code == 3 {
+        style.magenta("! some cases could not run")
+    } else if failed > 0 {
+        style.red(&format!(
+            "✗ {} failing their labels",
+            plural(failed, "requirement", "requirements")
+        ))
+    } else {
+        style.green("✓ every asserted requirement matches its labels")
+    };
+    let mut context = vec![
+        format!("{} asserted", with(Evidence::Asserted)),
+        format!("{} measured", with(Evidence::Measured)),
+        format!("{} without examples", with(Evidence::None)),
+    ];
+    if runs > 1 {
+        let unstable: usize = tested.iter().map(Tested::unstable).sum();
+        context.push(format!("{runs} runs each, {unstable} unstable"));
+    }
+    out += &format!(
+        "\n{}\n{verdict}   {}\n",
+        style.dim(&"─".repeat(64)),
+        style.dim(&context.join(" · "))
+    );
     (out, code)
 }

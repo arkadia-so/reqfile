@@ -21,8 +21,8 @@ use crate::core::config::{self, DecisionConfig};
 use crate::core::decision::{self, DecisionSpec, Unit, Verdict};
 use crate::core::paths;
 use crate::core::plan::{self, Candidate, CommandPlan};
-use crate::core::report::{Error, Finding, FindingKind, Report};
-use crate::core::reqfile::{Check, CommandCheck, OutputFormat};
+use crate::core::report::{CheckRun, Error, Finding, FindingKind, Report, RequirementRun, Setup};
+use crate::core::reqfile::{self, Check, CommandCheck, OutputFormat};
 use crate::core::resolve::{self, Assets, Effective, Scope};
 use crate::core::runlog;
 
@@ -56,12 +56,15 @@ fn log_line(log: &mut Option<Log>, kind: &str, fields: serde_json::Value) {
 
 struct CommandJob<'w> {
     block: &'w Effective,
+    /// Its requirement's position in `Report::requirements`.
+    requirement: usize,
     check: &'w CommandCheck,
     args: Vec<String>,
 }
 
 struct DecisionJob<'w> {
     block: &'w Effective,
+    requirement: usize,
     /// How to call Jev, from the settings of that folder.
     jev: DecisionConfig,
     spec: DecisionSpec,
@@ -102,8 +105,35 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
         Ok(log) => log,
         Err(error) => return Report::from_errors([error]),
     };
+    let started = std::time::Instant::now();
     let mut report = Report {
         sources: workspace.sources.clone(),
+        requirements: selected
+            .iter()
+            .map(|&i| {
+                let block = &workspace.blocks[i];
+                RequirementRun {
+                    id: block.id.clone(),
+                    reqfile: block.reqfile.clone(),
+                    kind: block.kind.as_str(),
+                    must: block.must.clone(),
+                    source: block
+                        .imported
+                        .as_ref()
+                        .map(|imported| match &imported.location {
+                            reqfile::Location::Git { repo, .. } => format!(
+                                "{repo}@{}",
+                                imported
+                                    .commit
+                                    .as_deref()
+                                    .map_or("", |c| &c[..c.len().min(7)])
+                            ),
+                            reqfile::Location::Local(path) => path.clone(),
+                        }),
+                    ..RequirementRun::default()
+                }
+            })
+            .collect(),
         ..Report::default()
     };
     let plan = plan(
@@ -115,6 +145,7 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
         &mut report,
     );
     report.checks_run += plan.commands.len() + plan.decisions.len();
+    report.setup = missing_setup(&plan.decisions);
     run_commands(workspace, &plan.commands, &mut report, &mut log);
     // Decisions and conflicts share one Jev cache, saved once at the end, so
     // pruning keeps the answers of both.
@@ -169,6 +200,7 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
     }
     // Blocking violations first, then advisory ones, then uncertain ones, each in Reqfile order.
     report.findings.sort_by_key(|f| f.kind);
+    report.millis = started.elapsed().as_millis() as u64;
     report
 }
 
@@ -231,16 +263,27 @@ fn plan<'w>(
         commands: Vec::new(),
         decisions: Vec::new(),
     };
-    for ((&index, mut spec), candidates) in selected.iter().zip(specs).zip(candidates) {
+    for (requirement, ((&index, mut spec), candidates)) in
+        selected.iter().zip(specs).zip(candidates).enumerate()
+    {
         let block = &workspace.blocks[index];
         for check in &block.checks {
             match check {
                 Check::Command(check) if fast && !check.fast => {
-                    report.checks_left_for_full_run += 1
+                    report.checks_left_for_full_run += 1;
+                    report.requirements[requirement].deferred += 1;
                 }
                 Check::Command(check) => match plan::plan_command(check, candidates) {
-                    CommandPlan::Run(args) => plan.commands.push(CommandJob { block, check, args }),
-                    CommandPlan::NoMatchingFiles => report.checks_with_nothing_to_check += 1,
+                    CommandPlan::Run(args) => plan.commands.push(CommandJob {
+                        block,
+                        requirement,
+                        check,
+                        args,
+                    }),
+                    CommandPlan::NoMatchingFiles => {
+                        report.checks_with_nothing_to_check += 1;
+                        report.requirements[requirement].nothing_to_check += 1;
+                    }
                 },
                 Check::Decision(check) => {
                     let spec = spec
@@ -249,9 +292,13 @@ fn plan<'w>(
                     let files = plan::decision_files(&spec, candidates);
                     match extract_units(&workspace.root, &spec, &files) {
                         // No file, or no code in them is a unit: nothing would be judged.
-                        Ok(units) if units.is_empty() => report.checks_with_nothing_to_check += 1,
+                        Ok(units) if units.is_empty() => {
+                            report.checks_with_nothing_to_check += 1;
+                            report.requirements[requirement].nothing_to_check += 1;
+                        }
                         Ok(units) => plan.decisions.push(DecisionJob {
                             block,
+                            requirement,
                             jev: workspace.settings.decision(&block.dir),
                             spec,
                             blocking: check.blocking,
@@ -286,6 +333,7 @@ fn run_commands(
     // with the same version as the run.
     let executable = std::env::current_exe().ok();
     let outcomes = pool::map(commands, parallelism, |job| {
+        let started = std::time::Instant::now();
         let assets = workspace.assets_path(job.block);
         let mut env: Vec<(&str, &Path)> = vec![("REQFILE_ASSETS", &assets)];
         if let Some(executable) = &executable {
@@ -299,9 +347,19 @@ fn run_commands(
             job.check.format == OutputFormat::Exit,
             Duration::from_secs(job.check.timeout_secs),
         );
-        command::judge(job.check, outcome, &job.block.dir, &root)
+        (
+            command::judge(job.check, outcome, &job.block.dir, &root),
+            started.elapsed().as_millis() as u64,
+        )
     });
-    for (job, outcome) in commands.iter().zip(outcomes) {
+    for (job, (outcome, millis)) in commands.iter().zip(outcomes) {
+        report.requirements[job.requirement]
+            .checks
+            .push(CheckRun::Command {
+                run: job.check.run.clone(),
+                files: job.args.len(),
+                millis,
+            });
         let id = &job.block.id;
         match outcome {
             Ok(violations) => {
@@ -332,12 +390,42 @@ fn run_commands(
                     "command_check",
                     json!({ "requirement": id, "command": job.check.run, "files": job.args.len(), "status": "error", "error": message }),
                 );
-                report
-                    .errors
-                    .push(Error::blocking(Some(id.clone()), message));
+                // An advisory command that cannot run could never have blocked.
+                report.errors.push(Error {
+                    requirement: Some(id.clone()),
+                    message,
+                    blocking: job.check.blocking,
+                });
             }
         }
     }
+}
+
+/// The Jev keys the planned decision checks need and the environment lacks.
+fn missing_setup(decisions: &[DecisionJob]) -> Vec<Setup> {
+    let mut setup: Vec<Setup> = Vec::new();
+    for job in decisions {
+        let variable = &job.jev.api_key_env;
+        if std::env::var(variable).is_ok_and(|v| !v.trim().is_empty()) {
+            continue;
+        }
+        let entry = match setup.iter().position(|s| &s.variable == variable) {
+            Some(i) => &mut setup[i],
+            None => {
+                setup.push(Setup {
+                    variable: variable.clone(),
+                    requirements: Vec::new(),
+                    blocking: false,
+                });
+                setup.last_mut().expect("just pushed")
+            }
+        };
+        if !entry.requirements.contains(&job.block.id) {
+            entry.requirements.push(job.block.id.clone());
+        }
+        entry.blocking |= job.blocking;
+    }
+    setup
 }
 
 /// Asks Jev about the units of the decision checks and records its verdicts.
@@ -359,6 +447,18 @@ fn run_decisions(
     let answers = ask::answers(caches, &checks);
     report.units_judged = Some(answers.iter().flatten().filter(|a| a.is_ok()).count());
     for (job, answers) in decisions.iter().zip(answers) {
+        report.requirements[job.requirement]
+            .checks
+            .push(CheckRun::Decision {
+                units: answers.iter().filter(|a| a.is_ok()).count(),
+                cached: answers
+                    .iter()
+                    .filter(|a| a.as_ref().is_ok_and(|j| j.cached))
+                    .count(),
+                model: answers
+                    .iter()
+                    .find_map(|a| a.as_ref().ok().map(|j| j.model.clone())),
+            });
         judge_decisions(report, job, answers, log);
     }
 }
@@ -623,8 +723,10 @@ fn command_finding(job: &CommandJob, violation: CommandViolation) -> Finding {
         requirement: job.block.id.clone(),
         kind: if violation.uncertain {
             FindingKind::Uncertain
-        } else {
+        } else if job.check.blocking {
             FindingKind::Violation
+        } else {
+            FindingKind::Advisory
         },
         file: violation.file,
         line: violation.line,

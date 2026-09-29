@@ -835,3 +835,40 @@ fn example_add_holdout_keeps_the_example_out_of_tuning() {
     .expect("example.yaml");
     assert!(yaml.ends_with("split: holdout\n"), "{yaml}");
 }
+
+#[test]
+fn pretty_eval_is_a_table_of_requirements_with_their_rates() {
+    let repo = no_todo_repo();
+    write_case(
+        &repo,
+        ".reqfile/NO_TODO/examples/violation-todo/notes.txt",
+        "TODO\n",
+    );
+    write_case(
+        &repo,
+        ".reqfile/NO_TODO/examples/violation-lowercase/notes.txt",
+        "todo\n",
+    );
+
+    let run = repo.run(&["eval", "--format", "pretty"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout
+            .starts_with("reqfile eval · 1 requirement · 2 examples\n\n"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains(
+            "  ✗ NO_TODO  asserted · 1/2 as labeled\n      violation-lowercase: missed\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("✗ 1 requirement failing their labels"),
+        "{}",
+        run.stdout
+    );
+}

@@ -116,6 +116,21 @@ product:
           timeout: 900
           fix_hint: Make the failing tests in tests/examples.rs pass.
 
+code:
+  - id: TESTS_PROVE_REQUIREMENTS
+    ref: Beck, "Test-Driven Development"; requirements traceability
+    must: Every integration test file in tests/ is run by the check of a requirement it proves; unit tests next to the code stay free.
+    why: A test no requirement stands behind is maintenance nobody asked for, and agents add them readily; tying each acceptance test to a promise keeps tests and promises in step, while unit tests remain implementation details.
+    who: Agents adding tests; reviewers.
+    checks:
+      - command:
+          run: $REQFILE_ASSETS/check.sh
+          fast: true
+          files: "**/tests/*.rs"
+          pass_files: true
+          format: sarif
+          fix_hint: Add `--test <name>` to the check of the requirement the file proves, or move its tests into the requirement's existing test file.
+
 process:
   - id: CI_GATE
     must: Every pull request and every release runs the tests, `reqfile check` and `reqfile eval` on the exact revision.

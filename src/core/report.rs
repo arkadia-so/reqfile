@@ -92,6 +92,61 @@ pub struct Summary {
     pub conflicts_not_checked: Option<String>,
 }
 
+/// A credential some selected checks need and the environment lacks, found
+/// before anything runs: said once, first, instead of once per unit.
+#[derive(Debug, Clone, Serialize)]
+pub struct Setup {
+    /// The environment variable to set.
+    pub variable: String,
+    /// The requirements whose decision checks need it.
+    pub requirements: Vec<String>,
+    /// Whether a blocking check needs it, so the run fails without it.
+    pub blocking: bool,
+}
+
+impl Setup {
+    pub fn describe(&self) -> String {
+        format!(
+            "{} is not set: the decision checks of {} will not judge any code, nor will conflicts between requirements be looked for. Set it, or name another variable in decision.api_key_env of .reqfile/config.yaml.",
+            self.variable,
+            self.requirements.join(", ")
+        )
+    }
+}
+
+/// One selected requirement: what its checks ran, for people reading the
+/// report; findings and errors stay in the report's lists.
+#[derive(Debug, Clone, Default)]
+pub struct RequirementRun {
+    pub id: String,
+    /// The Reqfile of its block, which groups requirements for people.
+    pub reqfile: String,
+    /// `product`, `code` or `process`.
+    pub kind: &'static str,
+    pub must: String,
+    /// For a requirement taken with `use`: where it comes from, short.
+    pub source: Option<String>,
+    pub checks: Vec<CheckRun>,
+    /// Checks with no file or code unit to look at.
+    pub nothing_to_check: usize,
+    /// Checks `--fast` left for a full run.
+    pub deferred: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum CheckRun {
+    Command {
+        run: String,
+        files: usize,
+        millis: u64,
+    },
+    Decision {
+        units: usize,
+        cached: usize,
+        model: Option<String>,
+    },
+}
+
 #[derive(Debug, Default)]
 pub struct Report {
     pub findings: Vec<Finding>,
@@ -103,6 +158,12 @@ pub struct Report {
     pub units_judged: Option<usize>,
     /// Why conflicts between requirements were not looked for, if they were not.
     pub conflicts_not_checked: Option<String>,
+    /// The selected requirements, in Reqfile order.
+    pub requirements: Vec<RequirementRun>,
+    /// Credentials missing for the selected checks.
+    pub setup: Vec<Setup>,
+    /// How long the run took.
+    pub millis: u64,
 }
 
 pub const EXIT_PASS: i32 = 0;
@@ -161,6 +222,9 @@ impl Report {
 
     pub fn render_summary(&self) -> String {
         let mut out = String::new();
+        for setup in &self.setup {
+            out += &format!("setup  {}\n", setup.describe());
+        }
         for finding in &self.findings {
             let mut columns: Vec<String> = Vec::new();
             match finding.kind {
@@ -282,6 +346,8 @@ impl Report {
             errors: &'r [Error],
             #[serde(skip_serializing_if = "<[Source]>::is_empty")]
             sources: &'r [Source],
+            #[serde(skip_serializing_if = "<[Setup]>::is_empty")]
+            setup: &'r [Setup],
             summary: Summary,
             exit_code: i32,
         }
@@ -289,6 +355,7 @@ impl Report {
             findings: &self.findings,
             errors: &self.errors,
             sources: &self.sources,
+            setup: &self.setup,
             summary: self.summary(),
             exit_code: self.exit_code(),
         };

@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::core::pretty as reqfile_pretty;
 use crate::core::report::EXIT_ERROR;
 use crate::core::reqfile::Kind;
 
@@ -45,8 +46,14 @@ enum Command {
         /// Reqfile; repeatable, restricted by --only.
         #[arg(long = "use", value_name = "LOCATION")]
         uses: Vec<String>,
-        #[arg(long, value_enum, default_value_t = Format::Summary)]
+        #[arg(long, value_enum, default_value_t = Format::Auto)]
         format: Format,
+        /// Every finding, and what each check ran.
+        #[arg(short, long, conflicts_with = "quiet")]
+        verbose: bool,
+        /// Only what fails the run, and the summary line.
+        #[arg(short, long)]
+        quiet: bool,
     },
     /// List the requirements that apply to a path, and where each comes from.
     Explain { path: PathBuf },
@@ -55,7 +62,7 @@ enum Command {
         /// Only list requirements of this type.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
-        #[arg(long, value_enum, default_value_t = Format::Summary)]
+        #[arg(long, value_enum, default_value_t = Format::Auto)]
         format: Format,
     },
     /// Write use blocks taking requirements from a folder (./std) or a
@@ -91,6 +98,11 @@ enum Command {
         /// changes, the noise a change to the checks must exceed.
         #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..))]
         repeat: u16,
+        #[arg(long, value_enum, default_value_t = Format::Auto)]
+        format: Format,
+        /// Every case that does not match its label.
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Manage a requirement's labeled examples.
     Example {
@@ -140,10 +152,33 @@ enum KindArg {
     Process,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Format {
-    Summary,
+    /// Pretty in a terminal, plain otherwise.
+    Auto,
+    /// A table, the details of what does not pass, and colors in a terminal.
+    Pretty,
+    /// One finding per line, stable, for agents, hooks and CI.
+    #[value(alias = "summary")]
+    Plain,
     Json,
+}
+
+/// How to draw a report for people, if `format` asks for it: `auto` does in
+/// a terminal, and colors follow the terminal and `NO_COLOR`.
+fn pretty(format: Format, verbose: bool, quiet: bool) -> Option<reqfile_pretty::Style> {
+    use std::io::IsTerminal;
+    let terminal = std::io::stdout().is_terminal();
+    let wanted = match format {
+        Format::Pretty => true,
+        Format::Auto => terminal,
+        Format::Plain | Format::Json => false,
+    };
+    wanted.then(|| reqfile_pretty::Style {
+        color: terminal && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty()),
+        verbose,
+        quiet,
+    })
 }
 
 fn main() -> ExitCode {
@@ -164,6 +199,8 @@ fn main() -> ExitCode {
             log_tag,
             uses,
             format,
+            verbose,
+            quiet,
         } => {
             let report = shell::check::run(
                 &cwd,
@@ -176,9 +213,10 @@ fn main() -> ExitCode {
                     uses,
                 },
             );
-            let text = match format {
-                Format::Summary => report.render_summary(),
-                Format::Json => report.render_json(),
+            let text = match (format, pretty(format, verbose, quiet)) {
+                (Format::Json, _) => report.render_json(),
+                (_, Some(style)) => reqfile_pretty::render(&report, &style),
+                (_, None) => report.render_summary(),
             };
             match emit(&text) {
                 Ok(()) => ExitCode::from(report.exit_code() as u8),
@@ -222,8 +260,20 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Eval { only, uses, repeat } => {
-            match shell::examples::run(&cwd, only.as_deref(), &uses, repeat.into()) {
+        Command::Eval {
+            only,
+            uses,
+            repeat,
+            format,
+            verbose,
+        } => {
+            if format == Format::Json {
+                eprintln!("error: reqfile eval has no JSON output");
+                return ExitCode::from(EXIT_ERROR as u8);
+            }
+            let style = pretty(format, verbose, false);
+            match shell::examples::run(&cwd, only.as_deref(), &uses, repeat.into(), style.as_ref())
+            {
                 Ok((text, code)) => match emit(&text) {
                     Ok(()) => ExitCode::from(code as u8),
                     Err(()) => ExitCode::from(EXIT_ERROR as u8),

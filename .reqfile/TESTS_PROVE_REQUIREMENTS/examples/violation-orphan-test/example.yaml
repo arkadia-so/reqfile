@@ -1,0 +1,4 @@
+expected: violation
+findings: [tests/extra.rs]
+rationale: tests/extra.rs is a test target no requirement runs; only tests/output.rs is named by a check.
+origin: authored

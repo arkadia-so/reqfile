@@ -1,0 +1,3 @@
+expected: ok
+rationale: A bare cargo test runs every test target, so none is orphaned.
+origin: authored

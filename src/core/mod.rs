@@ -11,6 +11,7 @@ pub mod junit;
 pub mod paths;
 pub mod pins;
 pub mod plan;
+pub mod pretty;
 pub mod report;
 pub mod reqfile;
 pub mod resolve;

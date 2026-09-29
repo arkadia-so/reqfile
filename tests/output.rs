@@ -464,3 +464,164 @@ fn conflict_answers_are_recorded_in_the_run_log() {
     assert_eq!(core["file"], "core/cache.rs");
     assert_eq!(core["conflict"], true);
 }
+
+#[test]
+fn pretty_output_is_a_table_then_the_details_of_what_does_not_pass() {
+    let jev = FakeJev::by_marker();
+    let repo = mixed_repo(&jev);
+
+    let run = repo.run(&["check", "--format", "pretty"]);
+
+    assert_eq!(run.code, 3, "{}", run.output());
+    let out = &run.stdout;
+    assert!(
+        out.starts_with("reqfile check · 4 requirements · 4 checks\n\n"),
+        "{out}"
+    );
+    // One row per requirement, most informative status first in each row.
+    assert!(
+        out.contains("  ✗ FAIL_FAST  1 violation · 1 advisory · 1 uncertain · 2 units judged"),
+        "{out}"
+    );
+    assert!(out.contains("  ✗ NO_TODO    1 violation"), "{out}");
+    assert!(
+        out.contains("  ! BROKEN     error · `exit 7` failed with exit code 7"),
+        "{out}"
+    );
+    assert!(out.contains("  – QUIET      nothing to check"), "{out}");
+    // Details group findings by requirement, each fix hint once, no color in a pipe.
+    assert!(out.contains("\n✗ FAIL_FAST  "), "{out}");
+    assert!(
+        out.contains("  ✗ api/handler.py:42  Do not use bare `except` (E722)\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("\n  fix  Catch the specific error.\n  fix  Split the function.\n"),
+        "{out}"
+    );
+    assert!(out.contains("  ✗ notes.md has a TODO\n"), "{out}");
+    assert!(!out.contains('\x1b'), "{out}");
+    assert!(
+        out.contains("✗ 2 violations   ● 1 advisory   ? 1 uncertain   ! 1 error"),
+        "{out}"
+    );
+}
+
+#[test]
+fn quiet_output_keeps_only_what_fails_and_the_summary() {
+    let jev = FakeJev::by_marker();
+    let repo = mixed_repo(&jev);
+
+    let run = repo.run(&["check", "--format", "pretty", "-q"]);
+
+    assert!(!run.stdout.contains("reqfile check ·"), "{}", run.stdout);
+    assert!(run.stdout.contains("✗ NO_TODO"), "{}", run.stdout);
+    assert!(run.stdout.contains("✗ 2 violations"), "{}", run.stdout);
+}
+
+#[test]
+fn verbose_output_lists_what_each_check_ran() {
+    let jev = FakeJev::by_marker();
+    let repo = mixed_repo(&jev);
+
+    let run = repo.run(&["check", "--format", "pretty", "-v"]);
+
+    assert!(run.stdout.contains("\nChecks\n"), "{}", run.stdout);
+    assert!(
+        run.stdout
+            .contains("FAIL_FAST  command  cat result.sarif; exit 1"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .contains("FAIL_FAST  decision · 2 units (0 cached)"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("QUIET      nothing to check"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn outside_a_terminal_the_default_output_stays_plain_for_agents() {
+    let jev = FakeJev::by_marker();
+    let repo = mixed_repo(&jev);
+
+    let default = repo.run(&["check"]);
+    let plain = repo.run(&["check", "--format", "plain"]);
+    let legacy = repo.run(&["check", "--format", "summary"]);
+
+    assert_eq!(default.stdout, plain.stdout);
+    assert_eq!(legacy.stdout, plain.stdout);
+    assert!(
+        plain.stdout.starts_with("FAIL_FAST  api/handler.py:42"),
+        "{}",
+        plain.stdout
+    );
+}
+
+/// A decision check on one Python function, run without its Jev key.
+fn keyless_repo(jev: &FakeJev) -> Repo {
+    let repo = repo!();
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[
+            ("FAIL_FAST", "- decision"),
+            ("NO_TODO", "- command:\n    run: \"true\"\n    fix_hint: x"),
+        ]),
+    );
+    repo.write(".reqfile/FAIL_FAST/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write(".reqfile/config.yaml", &jev.config());
+    repo.write("a.py", "def f():\n    pass\n");
+    repo
+}
+
+#[test]
+fn a_missing_jev_key_is_announced_first_and_once() {
+    let jev = FakeJev::by_marker();
+    let repo = keyless_repo(&jev);
+
+    let plain = repo.run(&["check"]);
+    let pretty = repo.run(&["check", "--format", "pretty"]);
+    let json = repo.run(&["check", "--format", "json"]).json();
+
+    // Advisory decision checks: the run does not fail, it says why they did not judge.
+    assert_eq!(plain.code, 0, "{}", plain.output());
+    assert!(
+        plain.stdout.starts_with("setup  OPENROUTER_API_KEY is not set: the decision checks of FAIL_FAST will not judge any code"),
+        "{}",
+        plain.stdout
+    );
+    let banner = pretty
+        .stdout
+        .find("! Jev is not set up: OPENROUTER_API_KEY is not set")
+        .expect(&pretty.stdout);
+    let table = pretty.stdout.find("FAIL_FAST").expect(&pretty.stdout);
+    assert!(banner < table, "{}", pretty.stdout);
+    assert!(
+        !pretty.stdout.contains("\n! FAIL_FAST  "),
+        "no detail section repeats it: {}",
+        pretty.stdout
+    );
+    assert!(
+        !pretty
+            .stdout
+            .contains("Conflicts between requirements not checked"),
+        "{}",
+        pretty.stdout
+    );
+    assert_eq!(json["setup"][0]["variable"], "OPENROUTER_API_KEY");
+    assert_eq!(
+        json["setup"][0]["requirements"],
+        serde_json::json!(["FAIL_FAST"])
+    );
+    assert_eq!(json["setup"][0]["blocking"], false);
+
+    repo.env("OPENROUTER_API_KEY", "key");
+    let keyed = repo.run(&["check"]);
+    assert!(!keyed.stdout.contains("setup  "), "{}", keyed.stdout);
+}

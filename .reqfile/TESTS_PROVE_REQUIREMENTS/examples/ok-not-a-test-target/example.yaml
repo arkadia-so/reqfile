@@ -1,0 +1,3 @@
+expected: ok
+rationale: Files in a subfolder of tests/ are support modules, not test targets.
+origin: authored

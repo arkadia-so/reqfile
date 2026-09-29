@@ -677,3 +677,38 @@ fn junit_report_without_any_test_is_a_tool_error() {
         run.stdout
     );
 }
+
+#[test]
+fn a_command_in_advisory_mode_reports_findings_without_blocking() {
+    let run = check_with("    run: echo too long; exit 1\n    mode: advisory");
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout.contains("advisory  RULE  too long\n"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("0 violations, 1 advisory finding"),
+        "{}",
+        run.stdout
+    );
+
+    // An advisory command that cannot run could never have blocked.
+    let broken = check_with("    run: exit 7\n    mode: advisory");
+    assert_eq!(broken.code, 0, "{}", broken.output());
+    assert!(
+        broken.stdout.contains("advisory error  RULE"),
+        "{}",
+        broken.stdout
+    );
+
+    let unknown = check_with("    run: \"true\"\n    mode: sometimes");
+    assert_eq!(unknown.code, 3, "{}", unknown.output());
+    assert!(
+        unknown
+            .stdout
+            .contains("unknown mode `sometimes`; expected `blocking` or `advisory`"),
+        "{}",
+        unknown.stdout
+    );
+}

@@ -1,0 +1,10 @@
+reqfile: 1
+product:
+  - id: OUTPUT
+    must: Output is readable.
+    why: Users read it.
+    checks:
+      - command:
+          run: cargo test --locked --test output
+          violation_codes: [101]
+          fix_hint: Make tests/output.rs pass.

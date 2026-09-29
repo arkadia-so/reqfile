@@ -36,7 +36,7 @@ With [mise](https://mise.jdx.dev), from the prebuilt binaries (macOS and Linux):
 ```toml
 # mise.toml
 [tools]
-"github:arkadia-so/reqfile" = "0.3"
+"github:arkadia-so/reqfile" = "0.4"
 ```
 
 Or with the install script, `cargo binstall reqfile`, or from source with
@@ -133,6 +133,7 @@ Target files come from git (tracked and untracked, never ignored), minus
 | `timeout` | no | Seconds, default 60 |
 | `fast` | no | Quick enough for `reqfile check --fast`, such as in an edit hook (default false) |
 | `thresholds` | no | `{ violation_above, pass_below }` for SARIF results carrying a probability (default 0.8 and 0.2) |
+| `mode` | no | `blocking` (default), or `advisory`: violations are reported without failing the run, and a failure to run is an advisory error |
 
 A command without `files` always runs. With `pass_files`, the files are
 appended at the end of the whole command, so a pipeline such as `tool "$@" |
@@ -437,9 +438,9 @@ endpoint also accepts TypeSafe's own API (`https://api.typesafe.ai/v1`, model
 ## CLI
 
 ```
-reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]...
-              [--format summary|json] [--log FILE [--log-tag KEY=VALUE]...]
-reqfile eval [--only ID,...] [--use LOCATION]... [--repeat N]
+reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]... [-v|-q]
+              [--format auto|pretty|plain|json] [--log FILE [--log-tag KEY=VALUE]...]
+reqfile eval [--only ID,...] [--use LOCATION]... [--repeat N] [-v] [--format auto|pretty|plain] [--repeat N]
 reqfile example add <ID> <NAME> --expected violation|ok [--finding FILE]... [--rationale TEXT] [--holdout] <FILE>...
 reqfile explain <PATH>
 reqfile list [--kind product|code|process] [--format summary|json]
@@ -470,6 +471,18 @@ reqfile update [--dry-run]
 - `list` lists every requirement of the repository with its type, the types of
   its checks and, for a use block, its source; `--format json` gives the same
   as data.
+- `--format`: in a terminal, `auto` (the default) draws a table of
+  requirements, then the details of what does not pass, grouped by
+  requirement with each fix hint once, and a summary line, in color unless
+  `NO_COLOR` is set; `-v` shows every finding and what each check ran, `-q`
+  only what fails the run. Anywhere else, such as in a hook, a pipe or CI, it
+  is `plain`: one finding per line, stable for agents and scripts (formerly
+  `summary`, still accepted). `json` is the same content as data.
+- Before anything runs, a missing Jev key is said once, first (`setup` in the
+  plain output, a banner in the pretty one, `setup` in JSON), naming the
+  variable and the requirements whose decision checks will not judge code.
+  reqfile reads keys from the environment only: fill it with the secret
+  manager you use.
 - `--use` adds the requirements of a location for this run (above).
 - `eval` measures each requirement's checks on its labeled examples (above),
   each case `--repeat N` times; `test` is its former name, kept as an alias

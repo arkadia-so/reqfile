@@ -192,6 +192,8 @@ pub struct CommandCheck {
     pub timeout_secs: u64,
     /// How results carrying a probability of violation are judged.
     pub thresholds: Thresholds,
+    /// Whether its violations fail the run; `mode: advisory` reports them only.
+    pub blocking: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -523,6 +525,7 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
             "timeout",
             "fast",
             "thresholds",
+            "mode",
         ],
     )?;
     let run = fields.required("run")?.text(path, "run")?;
@@ -640,6 +643,23 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
             }
         }
     };
+    let blocking = match fields.optional("mode") {
+        None => true,
+        Some(node) => {
+            let line = node.line;
+            match node.text(path, "mode")?.as_str() {
+                "blocking" => true,
+                "advisory" => false,
+                other => {
+                    return Err(ConfigError::at(
+                        path,
+                        line,
+                        format!("unknown mode `{other}`; expected `blocking` or `advisory`"),
+                    ));
+                }
+            }
+        }
+    };
     Ok(CommandCheck {
         run,
         fast,
@@ -650,5 +670,6 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
         violation_codes,
         timeout_secs,
         thresholds,
+        blocking,
     })
 }

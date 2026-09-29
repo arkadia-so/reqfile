@@ -20,17 +20,17 @@ This skill: https://reqfile.dev/SKILL.md
    tool versions, package scripts and CI. Preserve existing requirements and
    configuration. Use an existing `reqfile` installation if available.
 2. Install the CLI through the project's tool manager. With mise, add
-   `"github:arkadia-so/reqfile" = "0.3.0"` to its existing `[tools]` table and
+   `"github:arkadia-so/reqfile" = "0.4.0"` to its existing `[tools]` table and
    run `mise install`. macOS and Linux prebuilt binaries are also available:
 
    ```sh
    installer_dir=$(mktemp -d) &&
-     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.3.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
+     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.4.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
      sh "$installer_dir/install.sh"
    reqfile --version
    ```
 
-   Alternatively use `cargo install reqfile --version 0.3.0 --locked` with
+   Alternatively use `cargo install reqfile --version 0.4.0 --locked` with
    Rust 1.90 or later. Reqfile also needs Git, a shell, and the tools invoked
    by this repository's checks. Respect an existing version pin.
 3. If there are no requirements, derive a small initial set from the user's
@@ -68,6 +68,7 @@ reqfile explain src/                  # Read the requirements governing an edit
 reqfile check --fast --changed        # Short feedback loop, including working changes
 reqfile check --only REQUIREMENT_ID   # Focus on one requirement
 reqfile check --format json           # Full, machine-readable report
+reqfile check --format plain          # One finding per line, the default outside a terminal
 reqfile eval                          # Measure the checks on their labeled examples
 ```
 
