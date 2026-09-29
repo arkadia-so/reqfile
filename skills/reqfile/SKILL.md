@@ -131,6 +131,11 @@ code:
           fix_hint: Catch the specific expected exception or let it propagate.
 ```
 
+Give each check one precise question about the `must`: a lint rule, a
+script's criterion, or a decision's `question`. When a principle needs
+several questions, write several checks, each with its own examples, rather
+than one vague check.
+
 Use `product` for externally observable behavior, `code` for implementation
 constraints and `process` for how the project runs, such as its CI. Each
 definition needs `id`, `must`, `why` and at least one check; `who` and `ref`
@@ -177,6 +182,36 @@ Pin the model when calibrating thresholds; `decision: { mode: blocking }`
 requires a pinned model. Before using it, measure representative labeled
 examples, including legitimate exceptions and evidence not used to tune the
 check. A `typescript` unit rule never selects `.tsx` files: add `tsx` rules.
+
+## Make checks converge on what people mean
+
+Every mistake of a check becomes an example, and the check improves until
+the examples, including held-out ones, say it reads the `must` as people do.
+Run this loop whenever a check is wrong in real use:
+
+1. **Catch the mistake.** A false alarm the user disputes; a violation missed
+   by the check, found by sampling what passed in `reqfile check --log FILE`
+   (misses never show on their own); or an uncertain finding someone can
+   label.
+2. **Capture it:** `reqfile example add ID <name> --expected violation|ok
+   [--finding FILE] --rationale "…" FILES…`, with the files the check needs.
+3. **Get the label from someone else.** Do not label an example so that your
+   change passes: ask the user, or an independent reviewer who sees the case
+   and the `must` but not the check's verdict. If labelers disagree, stop and
+   tell the user the `must` is ambiguous; propose a rewording instead of
+   tuning the check.
+4. **See it fail:** `reqfile eval --only ID --repeat 3`.
+5. **Make one change** aimed at the cause: the question and its criteria, the
+   unit selector, the thresholds, or a new check for a new precise question.
+   Keep it only if the held-out rates improve beyond the unstable cases and
+   no other example regresses; otherwise revert it.
+6. **Report** the rates before and after, with their intervals, and what the
+   user must decide: a contested label, a `decide` line, a rate still below
+   the target they set for making the check blocking.
+
+The user owns the `must`, disputed labels and contradictions between
+requirements. You own fixing code, capturing examples and iterating on checks
+within that evidence.
 
 ## Improve checks with examples
 

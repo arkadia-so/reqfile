@@ -356,6 +356,39 @@ overlap are not evidence of a difference. A requirement whose examples hold one
 class only is reported as measuring half of its checks. A case that cannot run
 exits 3.
 
+### The learning loop
+
+A requirement's `must` is a person's promise; its checks are the machine's
+reading of it; its examples are where the two meet. Checks converge on what
+people mean because every disagreement between them ends as an example:
+
+1. **One precise question per check.** The `must` may be broad; each check
+   answers one narrow question about it: a lint rule, a script's criterion,
+   a decision's `question` with its `violation_when` and `ok_when`. A broad
+   principle gets several checks, each with its own examples, rather than
+   one vague question that no example can pin down.
+2. **A mistake becomes an example.** A false alarm someone disputes, or a
+   violation found by sampling what passed, goes into
+   `.reqfile/<ID>/examples/` with `reqfile example add`. Misses are silent:
+   `reqfile check --log` records what passed too, so sample it, and review
+   the uncertain findings, where a decision check doubts.
+3. **Someone else labels it.** Whoever changes the check does not choose the
+   label. When two labelers disagree, the `must` is ambiguous: a person
+   rewords it, rather than the check being tuned to one reading.
+4. **One change, measured.** `reqfile eval` shows the failure; one change to
+   the check (its question, selector, thresholds, or a new check for a new
+   question) is kept only if the held-out examples improve beyond the noise
+   and no other case regresses, as below.
+5. **Rates are the contract.** Asserted checks match every label; measured
+   ones report rates with intervals. A check becomes blocking only once its
+   measured rates meet a target chosen beforehand.
+
+People own the `must`, the labels of disputed cases, and the choice between
+requirements that contradict each other. Agents fix code, capture mistakes as
+examples, and iterate on checks within the evidence. The output says which is
+which: a violation is work for the agent; a `decide` line, a contested label
+or a rate below its target is a question for a person.
+
 ### Improving a check without fitting its examples
 
 A measured check is improved like any model: on evidence it was not tuned on,
