@@ -1,0 +1,19 @@
+# FUNCTIONAL_CORE, a reqfile requirement package (https://reqfile.dev)
+# ALPHA: written with an agent and not yet reviewed or measured by hand.
+# Its checks and examples may be wrong; do not adopt it yet. See README.md.
+reqfile: 1
+
+code:
+  - id: FUNCTIONAL_CORE
+    ref: Bernhardt, "Boundaries"; Elm Architecture
+    must: State machines where the order of events matters (timeouts, retries, sync, multi-step workflows) are pure step functions named `step`, taking (state, event) and returning (state, effects), under a core/ folder; code under core/ imports no I/O module, and only the shell performs I/O and executes effects. Other code uses ordinary pure functions where it can and focused tests.
+    why: Event ordering is where state bugs hide; a pure core is fast to test without mocks, deterministic to simulate, and the only part realistically provable later. Imposing it on every state change would be ceremony.
+    who: Test authors; anyone debugging state.
+    checks:
+      - command:
+          run: ast-grep scan --rule $REQFILE_ASSETS/no-io-in-core.yml --format sarif
+          fast: true
+          files: "**/core/**"
+          pass_files: true
+          format: sarif
+          fix_hint: Move the I/O to the shell and pass its result into the core as data.

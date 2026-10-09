@@ -1,0 +1,3 @@
+expected: violation
+rationale: "A scenario already over the cap got slower still: 540 s against 420 s \u00d7 1.25 = 525 s. over_cap allows the debt, not its growth."
+origin: authored

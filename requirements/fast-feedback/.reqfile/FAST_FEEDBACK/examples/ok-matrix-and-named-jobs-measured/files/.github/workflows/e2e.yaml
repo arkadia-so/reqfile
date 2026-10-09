@@ -1,0 +1,14 @@
+name: e2e
+'on':
+  pull_request_target:
+    types: [opened, synchronize]
+jobs:
+  browsers:
+    name: Browser tests  # shown in the checks list
+    strategy:
+      matrix:
+        browser: [chromium, firefox]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the browser tests
+        run: make e2e

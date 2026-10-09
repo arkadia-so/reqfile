@@ -198,6 +198,18 @@ pub fn render(report: &Report, style: &Style) -> String {
         .filter(|e| e.requirement.is_none())
         .map(|e| e.message.as_str())
         .collect();
+    // Nothing could be planned: the errors say why, in full, and nothing else.
+    if rows.is_empty() && !general.is_empty() {
+        let full = Style {
+            verbose: true,
+            ..*style
+        };
+        for message in general {
+            out += &error_block(&style.magenta("!"), message, &full);
+        }
+        out += &footer(report, style);
+        return out;
+    }
     if !style.quiet {
         out += &style.bold(&format!(
             "reqfile check · {} · {}",
@@ -216,6 +228,10 @@ pub fn render(report: &Report, style: &Style) -> String {
                 source.location,
                 &source.commit[..source.commit.len().min(12)]
             ));
+            out += "\n";
+        }
+        for note in &report.notes {
+            out += &style.dim(&format!("note {note}"));
             out += "\n";
         }
         out += "\n";
@@ -391,8 +407,9 @@ fn setup_banner(report: &Report, style: &Style) -> String {
             paint(&format!("Jev is not set up: {} is not set", setup.variable)),
             checks_line,
             style.dim(&format!(
-                "Set {}, or name another variable in decision.api_key_env of .reqfile/config.yaml.",
-                setup.variable
+                "Set {}{}, or name another variable in decision.api_key_env of .reqfile/config.yaml.",
+                setup.variable,
+                super::config::other_key(&setup.variable)
             )),
         );
     }
@@ -512,7 +529,11 @@ fn error_block(mark: &str, message: &str, style: &Style) -> String {
         rest.len().min(3)
     };
     for line in &rest[..shown] {
-        out += &format!("    {}\n", style.dim(line));
+        if line.is_empty() {
+            out += "\n";
+        } else {
+            out += &format!("    {}\n", style.dim(line));
+        }
     }
     if shown < rest.len() {
         out += &format!(

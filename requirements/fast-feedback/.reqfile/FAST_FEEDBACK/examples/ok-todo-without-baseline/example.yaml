@@ -1,0 +1,3 @@
+expected: ok
+rationale: "A job without enough samples on its current CI yet is covered by a scenario that leaves out its baseline and says, in a todo, when it gets one; it is measured, and its median, slow or not, fails nothing."
+origin: authored

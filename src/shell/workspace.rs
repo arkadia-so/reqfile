@@ -476,6 +476,9 @@ fn load_settings(listed: &[String], files: &Files, errors: &mut Vec<String>) -> 
         .collect();
     configs.sort_by_key(|(dir, _)| config::depth(dir));
     let mut settings = Settings::default();
+    settings.set_provider(config::Provider::from_keys(|variable| {
+        std::env::var(variable).is_ok_and(|v| !v.trim().is_empty())
+    }));
     for (_, path) in configs {
         if settings.excluded_by(path).is_some() {
             continue;
@@ -529,4 +532,33 @@ fn load_reqfiles(
         }
     }
     reqfiles
+}
+
+/// Why a command that checks requirements stops in a repository that has
+/// none, written for the agent or person setting reqfile up: a run that
+/// checks nothing must not look like a pass.
+pub fn no_reqfile(root: &Path) -> String {
+    format!(
+        "no Reqfile.yaml in this repository: none among the files git lists under {} (tracked, or untracked and not ignored), so there is nothing to check.
+
+reqfile checks a codebase against requirements written in Reqfile.yaml files. Each requirement is a promise (must, why) with checks that verify it: a command, such as a linter or the tests, or a question to the Jev model.
+
+To set it up:
+  - If you are an agent: read https://reqfile.dev/SKILL.md and follow \"When asked to set up Reqfile\".
+  - To take requirements someone published: reqfile add <owner/repo@tag>
+  - Or write Reqfile.yaml at the repository root, for example:
+
+      reqfile: 1
+      process:
+        - id: TESTS_PASS
+          must: The test suite passes.
+          why: A change that breaks a test breaks a behavior someone relied on.
+          checks:
+            - command:
+                run: <this project's test command, such as cargo test, npm test or pytest>
+                fix_hint: Run the tests and fix what fails.
+
+Then run `reqfile list` to see the requirements and `reqfile check` to check them.",
+        root.display()
+    )
 }

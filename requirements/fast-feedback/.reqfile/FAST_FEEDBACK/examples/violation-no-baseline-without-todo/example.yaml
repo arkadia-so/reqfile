@@ -1,0 +1,3 @@
+expected: violation
+rationale: "A scenario without a baseline and without a todo: nothing says it is waiting for one, so nobody sets it."
+origin: authored

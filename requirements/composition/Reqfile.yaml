@@ -1,0 +1,19 @@
+# COMPOSITION, a reqfile requirement package (https://reqfile.dev)
+# ALPHA: written with an agent and not yet reviewed or measured by hand.
+# Its checks and examples may be wrong; do not adopt it yet. See README.md.
+reqfile: 1
+
+code:
+  - id: COMPOSITION
+    ref: Gang of Four; McIlroy, Unix philosophy
+    must: No implementation inheritance in application code; combine pieces through shared interfaces and data formats. Inheriting from a base a framework requires (Pydantic BaseModel, Exception or Error, ORM declarative bases) is allowed.
+    why: Implementation hierarchies couple every subclass to its parent's internals, and agents reach for them by default in TS and Python.
+    who: Anyone changing a shared component; agents extending code.
+    checks:
+      - command:
+          run: ast-grep scan --rule $REQFILE_ASSETS/rules.yml --format sarif
+          fast: true
+          files: "**/*.{ts,tsx,py}"
+          pass_files: true
+          format: sarif
+          fix_hint: Hold the collaborator behind an interface instead of inheriting from it.

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Command checks (exit codes, SARIF, JUnit), decision checks with Jev, the API key, and contradictions between requirements." />
+    <link rel="canonical" href="https://reqfile.dev/docs/checks" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>Checks — Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs">Getting started</a></li>
+          <li><a href="/docs/reqfile">Reqfile.yaml</a></li>
+          <li><a href="/docs/checks" aria-current="page">Checks</a>
+            <ul>
+              <li><a href="#command-checks">Command checks</a></li>
+              <li><a href="#formats">Output formats</a></li>
+              <li><a href="#probabilities">Probabilities from commands</a></li>
+              <li><a href="#decision-checks">Decision checks</a></li>
+              <li><a href="#blocking">Advisory or blocking</a></li>
+              <li><a href="#cache">Cost and cache</a></li>
+              <li><a href="#jev-key">The Jev key</a></li>
+              <li><a href="#contradictions">Contradictions between requirements</a></li>
+            </ul></li>
+          <li><a href="/docs/packages">Packages</a></li>
+          <li><a href="/docs/evals">Evals</a></li>
+          <li><a href="/docs/cli">CLI</a></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>Checks</h1>
+        <p class="lead">A check verifies a requirement: a command when the rule is mechanical, a decision when it needs judgment. A check that cannot run is never reported as passing.</p>
+        <section aria-labelledby="command-checks">
+          <h2 id="command-checks"><a href="#command-checks">Command checks</a></h2>
+<p>A command check runs an existing tool: a linter, a test runner, a script.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>run</code></td><td>yes</td><td>Shell command, run from the folder of its Reqfile</td></tr>
+<tr><td><code>fix_hint</code></td><td>yes</td><td>One line telling how to fix a violation</td></tr>
+<tr><td><code>files</code></td><td>no</td><td>Glob relative to that folder; the command runs only if a target file matches</td></tr>
+<tr><td><code>pass_files</code></td><td>no</td><td>Append the matching files as arguments (default false)</td></tr>
+<tr><td><code>format</code></td><td>no</td><td><code>exit</code> (default), <code>sarif</code> or <code>junit</code></td></tr>
+<tr><td><code>violation_codes</code></td><td>no</td><td>Exit codes meaning “violations found” (default <code>[1]</code>; <code>[101]</code> for <code>cargo test</code>)</td></tr>
+<tr><td><code>timeout</code></td><td>no</td><td>Seconds, default 60</td></tr>
+<tr><td><code>fast</code></td><td>no</td><td>Quick enough for <code>reqfile check --fast</code>, such as in an edit hook (default false)</td></tr>
+<tr><td><code>thresholds</code></td><td>no</td><td><code>{ violation_above, pass_below }</code> for SARIF results carrying a probability (default 0.8 and 0.2)</td></tr>
+<tr><td><code>mode</code></td><td>no</td><td><code>blocking</code> (default), or <code>advisory</code>: violations are reported without failing the run, and a failure to run is an advisory error</td></tr>
+</tbody></table></div>
+<p>A command without <code>files</code> always runs. With <code>pass_files</code>, the files are appended at the end of the whole command, so a pipeline such as <code>tool "$@" | filter</code> receives nothing; put pipelines in a script.</p>
+<p>Commands reach the files of their requirement through <code>$REQFILE_ASSETS</code>, the absolute path of its <code>.reqfile/&lt;ID&gt;/</code> folder, as in <code>run: $REQFILE_ASSETS/check.sh</code>. <code>$REQFILE</code> is the reqfile executable running the check, for commands that inspect the requirements themselves, such as <code>$REQFILE list --format json</code>.</p>
+        </section>
+        <section aria-labelledby="formats">
+          <h2 id="formats"><a href="#formats">Output formats</a></h2>
+<p><strong><code>format: exit</code></strong>: exit 0 passes, and a code listed in <code>violation_codes</code> reports one violation carrying the last 50 lines of output.</p>
+<p><strong><code>format: sarif</code></strong>: the report is parsed on both exit 0 and a listed violation code. Each <code>kind: fail</code> result is a violation; an absent <code>kind</code> defaults to <code>fail</code>. Other kinds and suppressed results are ignored. A suppression with no status or <code>status: accepted</code> suppresses the result; <code>rejected</code> and <code>underReview</code> do not. This catches findings from pipelines such as <code>clippy | clippy-sarif</code> even when the final command exits 0.</p>
+<p><strong><code>format: junit</code></strong>: the command prints a JUnit XML report, as cargo-nextest, pytest, vitest, bun and gotestsum write. Each failed or errored test case is a violation named after the test, located by its <code>file</code> and <code>line</code> attributes when the runner gives them. A report with no test case, or a violation code with no failed test, is a tool error.</p>
+<p>Invalid SARIF (including on exit 0), a violation code with no SARIF results, any unexpected exit code, a signal or a timeout is a tool error. A report containing only ignored results passes on exit 0 or a listed violation code.</p>
+        </section>
+        <section aria-labelledby="probabilities">
+          <h2 id="probabilities"><a href="#probabilities">Probabilities from commands</a></h2>
+<p>A SARIF result may carry <code>properties.probability</code>, the probability that it is a violation, so heuristics and models speak the same protocol as linters. Such a result is judged by it, whatever its kind: above <code>violation_above</code> a violation, below <code>pass_below</code> nothing, and in between an uncertain finding, always advisory. A probability outside 0 to 1 is a tool error. A checker can report every file it judged, with low probabilities for the fine ones.</p>
+<p>A checker is any program. When a requirement is shared, its command fetches the checker with its ecosystem's runner at an exact version, such as <code>bunx @scope/reqfile-colocation@0.1.3</code>, <code>uvx tool==1.2.0</code> or <code>go run example.com/tool@v1.2.0</code>, so nothing needs installing and reqfile manages no packages.</p>
+        </section>
+        <section aria-labelledby="decision-checks">
+          <h2 id="decision-checks"><a href="#decision-checks">Decision checks</a></h2>
+<p>A <code>decision</code> check (or <code>decision: { mode: blocking }</code>) asks Jev a question about each unit of code it selects. It reads <code>$REQFILE_ASSETS/decision.yaml</code>, the <code>.reqfile/&lt;ID&gt;/decision.yaml</code> of its requirement:</p>
+<div class="code"><span class="code-lang">.reqfile/FAIL_FAST/decision.yaml</span><pre><code>units:                      # ast-grep rules selecting the code to ask about
+  - { language: typescript, rule: { kind: catch_clause } }
+  - { language: tsx, rule: { kind: catch_clause } }
+  - { language: python, rule: { kind: except_clause } }
+  - { language: rust, rule: { pattern: $X.unwrap_or_default() } }
+context: enclosing          # optional: also send the enclosing function
+question: Does this error handler hide the failure?
+violation_when: It discards the error, only logs it, or replaces it with a default value, and execution continues as if nothing failed.
+ok_when: It rethrows, returns an explicit error, or handles a specific expected error in a way the caller can observe.
+fix_hint: Rethrow, return an explicit error, or narrow the handler to the expected error and handle it visibly.
+thresholds: { violation_above: 0.8, pass_below: 0.2 }</code></pre></div>
+<p>Units accept ast-grep's <code>rule</code>, <code>constraints</code> and <code>utils</code>, plus <code>files</code> and <code>ignores</code> globs (relative to the Reqfile's folder). A unit rule selects files of exactly its language: a <code>typescript</code> rule never selects <code>.tsx</code> files, so TSX needs its own <code>tsx</code> rules. For each unit, reqfile asks Jev the question with the language, path, unit source and, with <code>context: enclosing</code>, the enclosing function.</p>
+<p>A probability above <code>violation_above</code> is a violation, below <code>pass_below</code> a pass, and anything in between an uncertain finding. Give each check one precise question about the <code>must</code>; when a principle needs several questions, write several checks, each with its own examples.</p>
+        </section>
+        <section aria-labelledby="blocking">
+          <h2 id="blocking"><a href="#blocking">Advisory or blocking</a></h2>
+<p>Decision checks are advisory unless <code>mode: blocking</code>; uncertain findings are always advisory. A blocking decision check needs a pinned model (an exact version, such as <code>typesafe/jev-1.13-20260917</code>, set in <code>.reqfile/config.yaml</code>), so its thresholds stay tied to the version they were measured with. Label a few dozen units of your codebase and <a href="/docs/evals">measure the check</a> before making it blocking.</p>
+<p>Command checks are blocking by default; <code>mode: advisory</code> reports their violations without failing the run.</p>
+        </section>
+        <section aria-labelledby="cache">
+          <h2 id="cache"><a href="#cache">Cost and cache</a></h2>
+<p>Each unit is sent once, with the questions of every decision check that selects it: Jev charges input tokens and reads the state once per request, so several checks on the same code cost little more than one. Answers are cached in a local file in the git folder (<code>.git/reqfile/jev-cache</code>), shared by every worktree, so checking never modifies tracked files. An answer is reused while the unit, the requirement's question and the exact model behind <code>latest</code> are unchanged, and a full run drops answers no unit uses any more. In CI, keep that file between runs.</p>
+        </section>
+        <section aria-labelledby="jev-key">
+          <h2 id="jev-key"><a href="#jev-key">The Jev key</a></h2>
+<p>Decision checks call <a href="https://docs.typesafe.ai">Jev</a>, TypeSafe's decision model, with an API key read from the environment. Mechanical checks need no key at all.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Variable</th><th>Where to get it</th><th>Endpoint and model used</th></tr></thead>
+<tbody>
+<tr><td><code>OPENROUTER_API_KEY</code></td><td><a href="https://openrouter.ai/settings/keys">openrouter.ai/settings/keys</a></td><td><code>https://openrouter.ai/api/v1</code>, <code>~typesafe/jev-latest</code></td></tr>
+<tr><td><code>TYPESAFE_API_KEY</code></td><td><a href="https://console.typesafe.ai/keys">console.typesafe.ai/keys</a></td><td><code>https://api.typesafe.ai/v1</code>, <code>jev-latest</code></td></tr>
+</tbody></table></div>
+<p>Set either one: with both set, OpenRouter is used. A <code>.reqfile/config.yaml</code> that sets <code>decision.endpoint</code> or <code>decision.api_key_env</code> picks the provider itself.</p>
+<p>TypeSafe <a href="https://docs.typesafe.ai/models">charges</a> $42 per billion input tokens and nothing for output: a million tokens of code, about a thousand functions of typical size, costs around 4 cents. Answers are cached, so later runs only pay for the code that changed. OpenRouter sets its own price for Jev.</p>
+<p>reqfile reads keys from the environment only: fill it with the secret manager you use. When the key is missing, the run says so first, naming the variable and the requirements whose decision checks will not judge code. An advisory decision check that cannot run, such as in a pull request from a fork without secrets, is an advisory error that leaves the exit code unchanged; a blocking one exits 3.</p>
+<p>The selected source and its context are sent to the configured provider: use decision checks only where that is acceptable for the repository.</p>
+        </section>
+        <section aria-labelledby="contradictions">
+          <h2 id="contradictions"><a href="#contradictions">Contradictions between requirements</a></h2>
+<p>Requirements will contradict each other. For each violation and advisory finding, reqfile asks Jev whether making the fix it asks for would break another requirement that applies to the same file. Each one it would break above 0.7 is listed under the finding (<code>breaks: CORE (p=0.90)</code>), and the summary groups them by pair of requirements as decisions to make:</p>
+<div class="code"><span class="code-lang">terminal</span><pre><code>decide  COLOCATION vs FUNCTIONAL_CORE  p=0.85  fixing COLOCATION in 4 files would break FUNCTIONAL_CORE
+    src/core/cache.rs, …
+    Reword one of the two requirements, or say which one wins where they meet.</code></pre></div>
+<p>A contradiction is a product decision, not a fix: an agent would undo one fix with the next. JSON marks each finding's <code>conflicts</code> so hooks can send them to a human. Without a Jev key the summary says conflicts were not checked, and failing to ask never changes the exit code.</p>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <a class="prev" href="/docs/reqfile"><span>Previous</span>Reqfile.yaml</a>
+          <a class="next" href="/docs/packages"><span>Next</span>Packages</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

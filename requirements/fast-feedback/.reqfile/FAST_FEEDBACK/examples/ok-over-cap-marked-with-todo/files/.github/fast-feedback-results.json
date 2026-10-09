@@ -1,0 +1,26 @@
+{
+  "measured_at": "2026-10-10T05:30:00Z",
+  "samples": 5,
+  "scenarios": {
+    "pr-test": {
+      "samples": [
+        433,
+        433,
+        433,
+        433,
+        433
+      ],
+      "median": 433
+    },
+    "pr-lint": {
+      "samples": [
+        39,
+        39,
+        39,
+        39,
+        39
+      ],
+      "median": 39
+    }
+  }
+}

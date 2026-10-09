@@ -1,0 +1,3 @@
+expected: violation
+rationale: "A new end-to-end job runs on every pull request but no scenario measures it, so it could slow the loop down unseen."
+origin: authored

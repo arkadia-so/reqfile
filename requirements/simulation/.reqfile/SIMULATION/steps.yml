@@ -1,0 +1,46 @@
+# Step functions: functions, methods or function values named `step`.
+id: step-rust
+language: rust
+severity: info
+rule: { kind: function_item, has: { field: name, regex: '^step$' } }
+---
+id: step-python
+language: python
+severity: info
+rule: { kind: function_definition, has: { field: name, regex: '^step$' } }
+---
+id: step-typescript
+language: typescript
+severity: info
+rule:
+  any:
+    - { kind: function_declaration, has: { field: name, regex: '^step$' } }
+    - { kind: method_definition, has: { field: name, regex: '^step$' } }
+    - kind: arrow_function
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+    - kind: function_expression
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+---
+id: step-tsx
+language: tsx
+severity: info
+rule:
+  any:
+    - { kind: function_declaration, has: { field: name, regex: '^step$' } }
+    - { kind: method_definition, has: { field: name, regex: '^step$' } }
+    - kind: arrow_function
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+    - kind: function_expression
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+---
+id: step-javascript
+language: javascript
+severity: info
+rule:
+  any:
+    - { kind: function_declaration, has: { field: name, regex: '^step$' } }
+    - { kind: method_definition, has: { field: name, regex: '^step$' } }
+    - kind: arrow_function
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+    - kind: function_expression
+      inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }

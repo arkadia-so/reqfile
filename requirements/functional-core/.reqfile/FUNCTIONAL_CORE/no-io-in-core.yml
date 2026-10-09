@@ -1,0 +1,91 @@
+# I/O modules, and the clock or randomness, used by code under core/: a pure
+# core computes the same result from the same state and event.
+id: no-io-rust
+language: rust
+severity: error
+message: Code under core/ must not use I/O modules, the clock or randomness.
+rule:
+  any:
+    - kind: scoped_identifier
+      regex: '^(::)?(std::(fs|io|net|process|env)|tokio::(fs|io|net|process|time)|reqwest|ureq|hyper)$'
+    - kind: use_declaration
+      regex: 'std::\{[^}]*\b(fs|io|net|process|env)\b|\b(reqwest|ureq|hyper)\b'
+    # the clock and unseeded randomness; a seeded rand::rngs::StdRng is deterministic
+    - kind: call_expression
+      has:
+        field: function
+        regex: '^((::)?std::time::)?(SystemTime|Instant)::now$|^(chrono::)?(Utc|Local)::now$|^(rand::)?(thread_rng|random)(::<.*>)?$|^rand::rng$|from_entropy$|^(getrandom::)?getrandom$|^OsRng\b'
+---
+id: no-io-python
+language: python
+severity: error
+message: Code under core/ must not use I/O modules, the clock or randomness.
+rule:
+  any:
+    # every module of `import a, b.c as d`, and the module of `from a import b`
+    - kind: dotted_name
+      regex: '^(os|io|sys|subprocess|socket|shutil|pathlib|requests|httpx|urllib|urllib3|aiohttp|sqlite3|asyncio|time|secrets)(\..*)?$'
+      any:
+        - inside: { kind: import_statement }
+        - inside: { kind: aliased_import, inside: { kind: import_statement } }
+        - inside: { kind: import_from_statement, field: module_name }
+    - pattern: open($$$)
+    # the clock and unseeded randomness; a seeded random.Random is deterministic
+    - kind: call
+      has:
+        field: function
+        regex: '^((datetime\.)?(datetime|date)\.(now|utcnow|today)|time\.(time|monotonic|perf_counter)(_ns)?|random\.(random|randint|randrange|choice|choices|shuffle|sample|uniform|getrandbits)|(uuid\.)?uuid[14])$'
+---
+id: no-io-typescript
+language: typescript
+severity: error
+message: Code under core/ must not use I/O modules, the clock or randomness.
+rule:
+  any:
+    - kind: import_statement
+      has:
+        field: source
+        regex: '^.(node:)?(fs|fs/promises|net|http|https|http2|child_process|os|dgram|readline|axios|node-fetch|undici)(/.*)?.$'
+    - pattern: fetch($$$)
+    # require('fs') and import('fs')
+    - kind: call_expression
+      all:
+        - has: { field: function, regex: '^(require|import)$' }
+        - has: { field: arguments, has: { kind: string, regex: '^.(node:)?(fs|fs/promises|net|http|https|http2|child_process|os|dgram|readline|axios|node-fetch|undici)(/.*)?.$' } }
+    # runtime globals that perform I/O
+    - kind: member_expression
+      has: { field: object, kind: identifier, regex: '^(Bun|Deno)$' }
+    - kind: member_expression
+      regex: '^process\.(env|argv|stdin|stdout|stderr|exit|cwd|chdir|hrtime)\b'
+      not: { inside: { kind: member_expression, regex: '^process\.' } }
+    # the clock and randomness
+    - kind: call_expression
+      has: { field: function, regex: '^(Date\.now|performance\.now|Math\.random|crypto\.(randomUUID|getRandomValues))$' }
+    - { kind: new_expression, regex: '^new\s+Date(\s*\(\s*\))?$' }
+---
+id: no-io-tsx
+language: tsx
+severity: error
+message: Code under core/ must not use I/O modules, the clock or randomness.
+rule:
+  any:
+    - kind: import_statement
+      has:
+        field: source
+        regex: '^.(node:)?(fs|fs/promises|net|http|https|http2|child_process|os|dgram|readline|axios|node-fetch|undici)(/.*)?.$'
+    - pattern: fetch($$$)
+    # require('fs') and import('fs')
+    - kind: call_expression
+      all:
+        - has: { field: function, regex: '^(require|import)$' }
+        - has: { field: arguments, has: { kind: string, regex: '^.(node:)?(fs|fs/promises|net|http|https|http2|child_process|os|dgram|readline|axios|node-fetch|undici)(/.*)?.$' } }
+    # runtime globals that perform I/O
+    - kind: member_expression
+      has: { field: object, kind: identifier, regex: '^(Bun|Deno)$' }
+    - kind: member_expression
+      regex: '^process\.(env|argv|stdin|stdout|stderr|exit|cwd|chdir|hrtime)\b'
+      not: { inside: { kind: member_expression, regex: '^process\.' } }
+    # the clock and randomness
+    - kind: call_expression
+      has: { field: function, regex: '^(Date\.now|performance\.now|Math\.random|crypto\.(randomUUID|getRandomValues))$' }
+    - { kind: new_expression, regex: '^new\s+Date(\s*\(\s*\))?$' }

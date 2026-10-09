@@ -1,0 +1,21 @@
+{
+  "margin": 0.25,
+  "samples": 5,
+  "cap_seconds": 180,
+  "scenarios": [
+    {
+      "id": "pr-test",
+      "workflow": "ci.yml",
+      "job": "test",
+      "baseline_seconds": 420,
+      "over_cap": true,
+      "todo": "ACME-12: shard the test job"
+    },
+    {
+      "id": "pr-lint",
+      "workflow": "ci.yml",
+      "job": "lint",
+      "baseline_seconds": 40
+    }
+  ]
+}

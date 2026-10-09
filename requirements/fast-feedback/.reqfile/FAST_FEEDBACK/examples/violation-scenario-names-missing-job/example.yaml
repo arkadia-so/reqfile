@@ -1,0 +1,3 @@
+expected: violation
+rationale: "The lint job was renamed check; its old scenario now measures nothing and the new job is unmeasured."
+origin: authored

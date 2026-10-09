@@ -1,0 +1,25 @@
+# Decision check for FAIL_FAST, asked to Jev about each unit (https://reqfile.dev)
+units:                      # where an error is caught or turned into a value, outside tests
+  # catch blocks and promise .catch() handlers
+  - { language: typescript, rule: { any: [{ kind: catch_clause }, { kind: call_expression, has: { field: function, regex: '\.catch$' } }] }, ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*"] }
+  - { language: tsx, rule: { any: [{ kind: catch_clause }, { kind: call_expression, has: { field: function, regex: '\.catch$' } }] }, ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*"] }
+  - { language: python, rule: { kind: except_clause }, ignores: ["**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py"] }
+  # .ok(), unwrap_or fallbacks, and match arms that discard the error;
+  # unwrap_or_else(Outcome::Error) wraps the error in a value, it does not discard it
+  - language: rust
+    rule:
+      any:
+        - pattern: $X.ok()
+        - pattern: $X.unwrap_or_default()
+        - pattern: $X.unwrap_or($D)
+        - all:
+            - pattern: $X.unwrap_or_else($F)
+            - not: { has: { field: arguments, has: { any: [{ kind: scoped_identifier, regex: '(^|::)[A-Z]\w*$' }, { kind: identifier, regex: '^[A-Z]' }] } } }
+        - { kind: match_arm, has: { field: pattern, regex: '^Err\(\s*(_|\.\.)\s*\)$' } }
+    ignores: ["**/tests/**", "**/benches/**"]
+context: enclosing          # also send the enclosing function
+question: Does this code hide a failure, by discarding an error or replacing it with a default value so that the caller cannot tell something failed?
+violation_when: A real error, such as a failed read, request, parse or command the caller should know about, is discarded, only logged, or replaced by a default or empty value, and execution continues as if it had succeeded.
+ok_when: The error is rethrown, returned, or turned into an explicit error or absence value the caller handles (an Err, an error outcome, a None it checks); or the fallback covers a value that is legitimately optional, such as a setting left unconfigured, a lookup that finds nothing, or an optional file that is absent, rather than a failure.
+fix_hint: Rethrow, return an explicit error, or narrow the handler to the expected error and handle it visibly.
+thresholds: { violation_above: 0.8, pass_below: 0.2 }   # starting guesses; calibrate before blocking

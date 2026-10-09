@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Measure checks on labeled examples with reqfile eval, and make them converge on what people mean." />
+    <link rel="canonical" href="https://reqfile.dev/docs/evals" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>Evals — Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs">Getting started</a></li>
+          <li><a href="/docs/reqfile">Reqfile.yaml</a></li>
+          <li><a href="/docs/checks">Checks</a></li>
+          <li><a href="/docs/packages">Packages</a></li>
+          <li><a href="/docs/evals" aria-current="page">Evals</a>
+            <ul>
+              <li><a href="#examples">Examples</a></li>
+              <li><a href="#run">reqfile eval</a></li>
+              <li><a href="#example-add">Capture a mistake</a></li>
+              <li><a href="#learning-loop">The learning loop</a></li>
+              <li><a href="#without-overfitting">Improving a check without fitting its examples</a></li>
+              <li><a href="#what-it-establishes">What each step establishes</a></li>
+            </ul></li>
+          <li><a href="/docs/cli">CLI</a></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>Evals</h1>
+        <p class="lead">Checks approximate requirements, so each one is measured on labeled examples: the eval of the requirement.</p>
+        <section aria-labelledby="examples">
+          <h2 id="examples"><a href="#examples">Examples</a></h2>
+<p>An example is a folder under <code>.reqfile/&lt;ID&gt;/examples/</code>:</p>
+<div class="code"><span class="code-lang">layout</span><pre><code>.reqfile/COLOCATION/examples/distant-test/
+  example.yaml   # what the checks should say
+  files/         # the case, the only part the checks see
+    src/checkout/discount.ts
+    test/unit/checkout/discount.test.ts</code></pre></div>
+<div class="code"><span class="code-lang">example.yaml</span><pre><code>expected: violation                          # violation | ok
+findings: [test/unit/checkout/discount.test.ts]   # optional: where the checks must flag
+rationale: The test sits in a mirror tree while its sibling tests are colocated.
+origin: authored                             # or real:&lt;commit&gt;, for a case met in real use
+known: miss                                  # optional: a failure tracked without failing
+split: holdout                               # optional: kept out of tuning (or any name), reported apart</code></pre></div>
+<p>Examples double as the requirement's documentation: a violation and an ok case side by side say what the <code>must</code> means.</p>
+        </section>
+        <section aria-labelledby="run">
+          <h2 id="run"><a href="#run">reqfile eval</a></h2>
+<p><code>reqfile eval</code> puts each case's <code>files/</code> alone in a fresh repository and runs the requirement's effective checks on it, with <code>$REQFILE_ASSETS</code> and the Jev settings of its folder. The label stays outside, so no check can read its answer. A violation flagged elsewhere than its <code>findings</code> counts as missed. <code>known: miss</code> or <code>known: false_alarm</code> records a failure the checks are known to have, reported without failing, until the checks improve. A requirement taken with <code>use</code> is measured on its definition's examples and its own.</p>
+<div class="code"><span class="code-lang">terminal</span><pre><code>UNUSED_CODE  asserted: 2 examples, 2 as labeled
+FAIL_FAST  measured, no assertion: 3 of 4 violations caught (95% interval 30 to 95%; 1 missed, 0 not selected, 0 uncertain); 0 of 2 correct examples flagged (95% interval 0 to 66%; 0 uncertain)
+  rust-ok-discard: missed
+SIMULATION  no evidence: no labeled examples
+
+3 requirements: 1 asserted, 1 measured, 1 without evidence; 6 examples. 0 failing their labels.</code></pre></div>
+<p>Each requirement falls in one of three classes:</p>
+<ul>
+<li><strong>asserted</strong>: deterministic checks only, which must match every label, or <code>reqfile eval</code> exits 1;</li>
+<li><strong>measured</strong>: with a decision check, or a command reporting probabilities, results are counted, never asserted: judgments vary, so exit 0 does not mean the check works. A detector earns its place, or <code>mode: blocking</code>, by the rates it reaches on examples it was not tuned on;</li>
+<li><strong>no evidence</strong>: no labeled examples, so nothing is known about its checks.</li>
+</ul>
+<p>Violations no check looked at are reported as “not selected”, apart from those it looked at and missed. Each rate comes with its 95% Wilson interval: on a few examples it is wide, and two rates whose intervals overlap are not evidence of a difference. A case that cannot run exits 3.</p>
+        </section>
+        <section aria-labelledby="example-add">
+          <h2 id="example-add"><a href="#example-add">Capture a mistake</a></h2>
+<p>Checks become precise over time when their failures become evidence. <code>reqfile example add</code> copies files of the repository into a new example, with the commit it came from:</p>
+<div class="code"><span class="code-lang">sh</span><pre><code>reqfile example add FAIL_FAST swallowed-retry --expected violation \
+  --finding src/sync/retry.ts --rationale "Why it has this label." src/sync/
+reqfile eval --only FAIL_FAST</code></pre></div>
+        </section>
+        <section aria-labelledby="learning-loop">
+          <h2 id="learning-loop"><a href="#learning-loop">The learning loop</a></h2>
+<p>A requirement's <code>must</code> is a person's promise; its checks are the machine's reading of it; its examples are where the two meet. Checks converge on what people mean because every disagreement between them ends as an example:</p>
+<ol>
+<li><strong>One precise question per check.</strong> The <code>must</code> may be broad; each check answers one narrow question about it: a lint rule, a script's criterion, a decision's <code>question</code> with its <code>violation_when</code> and <code>ok_when</code>.</li>
+<li><strong>A mistake becomes an example.</strong> A false alarm someone disputes, or a violation found by sampling what passed, goes into <code>.reqfile/&lt;ID&gt;/examples/</code> with <code>reqfile example add</code>. Misses are silent: <code>reqfile check --log</code> records what passed too, so sample it, and review the uncertain findings.</li>
+<li><strong>Someone else labels it.</strong> Whoever changes the check does not choose the label. When two labelers disagree, the <code>must</code> is ambiguous: a person rewords it, rather than the check being tuned to one reading.</li>
+<li><strong>One change, measured.</strong> <code>reqfile eval</code> shows the failure; one change to the check is kept only if the held-out examples improve beyond the noise and no other case regresses.</li>
+<li><strong>Rates are the contract.</strong> Asserted checks match every label; measured ones report rates with intervals. A check becomes blocking only once its measured rates meet a target chosen beforehand.</li>
+</ol>
+<p>People own the <code>must</code>, the labels of disputed cases, and the choice between requirements that contradict each other. Agents fix code, capture mistakes as examples, and iterate on checks within the evidence. The output says which is which: a violation is work for the agent; a <code>decide</code> line, a contested label or a rate below its target is a question for a person.</p>
+        </section>
+        <section aria-labelledby="without-overfitting">
+          <h2 id="without-overfitting"><a href="#without-overfitting">Improving a check without fitting its examples</a></h2>
+<ul>
+<li><strong>Held-out examples.</strong> <code>split: holdout</code> (or <code>reqfile example add --holdout</code>) keeps an example out of tuning; <code>reqfile eval</code> reports the tuning and held-out examples on separate lines. Choose about a third of each class before looking at results, and revert a change that raises the tuning rates and not the held-out ones. Any other name of lowercase letters, digits and dashes, such as <code>split: confirmation-1</code>, makes a split of its own, reported apart by that name.</li>
+<li><strong>Fast iterations.</strong> <code>reqfile eval --format json</code> gives each requirement's counts per split and every case with its outcome, the files flagged, its <code>known</code> and its error. <code>--command-override 'FROM=&gt;TO'</code> measures another command for one run, such as a package's working copy instead of its published runner.</li>
+<li><strong>Noise.</strong> <code>reqfile eval --repeat N</code> runs each case N times and lists the cases whose outcome changes; 3 to 5 runs are enough to see it. A change improves a check only when it moves more cases than are unstable. An asserted requirement whose outcome changes between runs fails.</li>
+<li><strong>Uncertainty is the review queue.</strong> Findings between <code>pass_below</code> and <code>violation_above</code> are reported as uncertain: those are the cases worth a person's label.</li>
+<li><strong>Thresholds.</strong> Choose <code>thresholds</code> on the tuning examples and confirm them on the held-out ones.</li>
+<li><strong>Headroom.</strong> When every example is classified as labeled, the benchmark cannot show that a change helps. Add cases a person judges hard, and say why in <code>rationale</code>.</li>
+<li><strong>No leaks.</strong> No example's text, names or identifiers go into a command, a decision question or a threshold.</li>
+<li><strong>Labels first.</strong> Before changing a check for a failing case, reread its label against the <code>must</code>; a wrong label is fixed in <code>example.yaml</code>.</li>
+</ul>
+        </section>
+        <section aria-labelledby="what-it-establishes">
+          <h2 id="what-it-establishes"><a href="#what-it-establishes">What each step establishes</a></h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Step</th><th>Establishes</th><th>Does not establish</th></tr></thead>
+<tbody>
+<tr><td><code>reqfile eval</code></td><td>How the effective checks classify the labeled examples, in isolation</td><td>Anything about your code, the tools in CI, or thresholds on your code</td></tr>
+<tr><td><code>reqfile check</code></td><td>What each check selected (files, units) and found, with your settings and this machine's tools</td><td>That the selection covers all relevant code, that no finding means the requirement holds, or that decision thresholds suit your code</td></tr>
+<tr><td><code>reqfile add</code></td><td>Which definitions and commit the blocks resolve to, and what they will run</td><td>Anything else: it runs none of them</td></tr>
+</tbody></table></div>
+<p>Exit 0 means the checks passed, not that the requirements hold.</p>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <a class="prev" href="/docs/packages"><span>Previous</span>Packages</a>
+          <a class="next" href="/docs/cli"><span>Next</span>CLI</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

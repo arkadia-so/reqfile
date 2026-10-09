@@ -1,0 +1,13 @@
+# CONTRACTS, a reqfile requirement package (https://reqfile.dev)
+# ALPHA: written with an agent and not yet reviewed or measured by hand.
+# Its checks and examples may be wrong; do not adopt it yet. See README.md.
+reqfile: 1
+
+code:
+  - id: CONTRACTS
+    ref: Meyer, Design by Contract; TigerBeetle, "Tiger Style"
+    must: Step functions state their invariants, preconditions and postconditions explicitly and assert them in code.
+    why: Invariants are the oracle for simulation tests and the specs for future proofs; unasserted, they are only hopes.
+    who: Simulation tests; anyone debugging.
+    checks:
+      - decision

@@ -1,0 +1,33 @@
+# PARSE_DONT_VALIDATE, a reqfile requirement package (https://reqfile.dev)
+# ALPHA: written with an agent and not yet reviewed or measured by hand.
+# Its checks and examples may be wrong; do not adopt it yet. See README.md.
+reqfile: 1
+
+code:
+  - id: PARSE_DONT_VALIDATE
+    ref: King; Minsky, "make illegal states unrepresentable"
+    must: External data is parsed once where it enters, with a schema library (Zod, Pydantic, serde), into precise types passed inward; no untyped values (`any`, `Any`) cross that boundary.
+    why: Scattered checks hide which data is trusted, drift apart over time, and let invalid states reach the core.
+    who: Anyone handling external input; the type checker.
+    checks:
+      - command:
+          run: ruff check --isolated --select ANN401 --output-format sarif
+          fast: true
+          files: "**/*.py"
+          pass_files: true
+          format: sarif
+          fix_hint: Replace Any with a precise type, parsed at the boundary.
+      - command:
+          run: ast-grep scan --rule $REQFILE_ASSETS/no-any.yml --format sarif
+          fast: true
+          files: "**/*.{ts,tsx}"
+          pass_files: true
+          format: sarif
+          fix_hint: Replace any with a precise type, parsed at the boundary with Zod.
+      - command:
+          run: ast-grep scan --rule $REQFILE_ASSETS/unparsed.yml --format sarif
+          fast: true
+          files: "**/*.{ts,tsx,py,rs}"
+          pass_files: true
+          format: sarif
+          fix_hint: Parse the decoded data with a schema (Zod, Pydantic, serde) into a precise type before using it.

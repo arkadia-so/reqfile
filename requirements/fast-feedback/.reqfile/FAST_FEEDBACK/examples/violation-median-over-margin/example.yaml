@@ -1,0 +1,3 @@
+expected: violation
+rationale: "The test job's median of 5 samples is 31 s against a baseline of 24 s: over 24 \u00d7 1.25 = 30 s, more than noise explains."
+origin: authored

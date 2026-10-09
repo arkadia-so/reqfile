@@ -1,0 +1,3 @@
+expected: ok
+rationale: "Both jobs that run on pull requests have a scenario; the deploy job runs only on push, so it needs none. No measurement yet: only the declaration is checked."
+origin: authored

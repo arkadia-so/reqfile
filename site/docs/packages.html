@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Take requirements from other folders and repositories with use, reqfile add and reqfile update." />
+    <link rel="canonical" href="https://reqfile.dev/docs/packages" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>Packages — Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs">Getting started</a></li>
+          <li><a href="/docs/reqfile">Reqfile.yaml</a></li>
+          <li><a href="/docs/checks">Checks</a></li>
+          <li><a href="/docs/packages" aria-current="page">Packages</a>
+            <ul>
+              <li><a href="#use">Use blocks</a></li>
+              <li><a href="#locations">Locations and pins</a></li>
+              <li><a href="#overrides">What a use block can set</a></li>
+              <li><a href="#try">Try before adopting</a></li>
+              <li><a href="#add-and-update">Add and update</a></li>
+              <li><a href="#publish">Publish a package</a></li>
+            </ul></li>
+          <li><a href="/docs/evals">Evals</a></li>
+          <li><a href="/docs/cli">CLI</a></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>Packages</h1>
+        <p class="lead">Any repository or folder whose Reqfile.yaml defines a requirement is a package: the same format as a local requirement, nothing more.</p>
+        <section aria-labelledby="use">
+          <h2 id="use"><a href="#use">Use blocks</a></h2>
+<p>A use block takes a requirement defined elsewhere:</p>
+<div class="code"><span class="code-lang">Reqfile.yaml</span><pre><code>code:
+  - { id: FAIL_FAST, use: ./std }                          # a folder of this repository
+  - id: COLOCATION
+    use: gabsn/reqfile-colocation@961ed099979271c6558efd10f84c1e764997b1ca  # v0.1.3
+  - id: CONTRACTS
+    use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d   # v1.2.0
+    why: The billing core must never reach an invalid state.</code></pre></div>
+<p>The definition brings its checks and its labeled examples under <code>.reqfile/&lt;ID&gt;/</code>.</p>
+        </section>
+        <section aria-labelledby="locations">
+          <h2 id="locations"><a href="#locations">Locations and pins</a></h2>
+<ul>
+<li><strong>Locations.</strong> A folder, relative to the folder of the use block's Reqfile (<code>./std</code>, <code>../shared</code>), or <code>owner/repo@&lt;commit&gt;</code>, fetched from <code>https://github.com/owner/repo</code> (<code>$REQFILE_GIT_BASE/owner/repo</code> when that variable is set, for a mirror). The use block resolves to the unique definition with its id among the Reqfiles at or under that location. Use blocks are never resolution targets, so chains cannot form.</li>
+<li><strong>Pins.</strong> A Reqfile pins a repository to a full 40-character commit id; the tag it came from goes in a comment. A tag, a branch, a short id or <code>HEAD</code> is an error: the rules of a repository must not change under it. Nobody types the commit: <code>reqfile add</code> writes the line and <code>reqfile update</code> moves it.</li>
+<li><strong>Cache.</strong> A commit never changes, so it is fetched once into the user's cache (<code>$REQFILE_CACHE</code>, else <code>$XDG_CACHE_HOME/reqfile</code>, else <code>~/.cache/reqfile</code>), shared by every repository and worktree, and checked offline from then on. CI can keep that folder between runs.</li>
+</ul>
+        </section>
+        <section aria-labelledby="overrides">
+          <h2 id="overrides"><a href="#overrides">What a use block can set</a></h2>
+<ul>
+<li><strong>Types.</strong> Only <code>code</code> and <code>process</code> requirements can be taken: a <code>product</code> requirement describes its own repository's product. The section of the use block must match its definition's.</li>
+<li><strong>Local fields.</strong> A use block takes <code>must</code>, <code>ref</code> and its type from its definition. It may set <code>why</code> and <code>who</code>, and <code>checks</code>, which then replace the definition's checks entirely. Setting <code>must</code> is an error.</li>
+<li><strong>Where checks run.</strong> The checks of a use block run in the folder of its Reqfile, with its globs relative to that folder, and the settings of that folder in the repository being checked.</li>
+<li><strong><code>$REQFILE_ASSETS</code></strong> is one <code>.reqfile/&lt;ID&gt;/</code> folder, never a merge: the definition's for inherited checks, the use block's own for checks it sets. With inherited checks, the use block's own <code>.reqfile/&lt;ID&gt;/</code> may only hold <code>examples/</code>, where you add your own examples of a shared requirement.</li>
+</ul>
+        </section>
+        <section aria-labelledby="try">
+          <h2 id="try"><a href="#try">Try before adopting</a></h2>
+<p><code>--use</code> adds the requirements of a location for one run, without writing any Reqfile; <code>--only</code> narrows them. A tag is welcome there: it is resolved on each run and the summary names the commit it resolved to.</p>
+<div class="code"><span class="code-lang">sh</span><pre><code>reqfile eval --use owner/repo@v1.2.0                 # measure its checks on its examples
+reqfile check --use owner/repo@v1.2.0 --only FAIL_FAST   # run them on this code</code></pre></div>
+        </section>
+        <section aria-labelledby="add-and-update">
+          <h2 id="add-and-update"><a href="#add-and-update">Add and update</a></h2>
+<div class="code"><span class="code-lang">sh</span><pre><code>reqfile add owner/repo@v1.2.0 [IDS] [--dry-run]
+reqfile update [--dry-run]</code></pre></div>
+<p><code>reqfile add</code> writes the use blocks into the Reqfile of the current folder, under their sections, a repository pinned to the commit its tag points to, and says what their checks run; <code>--dry-run</code> only shows them. Without ids, it takes every code and process requirement there. <code>reqfile update</code> moves every pin to the commit of its repository's latest release tag (<code>vX.Y.Z</code>); the diff is the review.</p>
+<p>Taking a requirement from another repository runs its commands in your CI: read what <code>reqfile add</code> prints before adding it. Every finding of a requirement taken with <code>use</code> names its use block and where its definition was resolved.</p>
+        </section>
+        <section aria-labelledby="publish">
+          <h2 id="publish"><a href="#publish">Publish a package</a></h2>
+<p>Put a <code>Reqfile.yaml</code> at the root of a repository with <code>code</code> or <code>process</code> definitions, their checks and their examples under <code>.reqfile/&lt;ID&gt;/</code>, and tag releases <code>vX.Y.Z</code>. A checker the commands call is fetched by its ecosystem's runner at an exact version. Examples double as documentation, and <code>reqfile eval</code> shows users how well the checks work before they adopt them. See <a href="https://github.com/gabsn/reqfile-colocation">gabsn/reqfile-colocation</a> for a working package.</p>
+<p>Use blocks need reqfile 0.2 or later, and commit pins 0.3.</p>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <a class="prev" href="/docs/checks"><span>Previous</span>Checks</a>
+          <a class="next" href="/docs/evals"><span>Next</span>Evals</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

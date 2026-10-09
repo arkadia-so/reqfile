@@ -8,11 +8,57 @@ use super::reqfile::FileGlob;
 use super::yaml::{self, Value};
 
 const FILE_NAME: &str = "config.yaml";
-/// Jev's latest release on OpenRouter, so decision checks follow new versions without config changes.
-const DEFAULT_MODEL: &str = "~typesafe/jev-latest";
-const DEFAULT_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
-const DEFAULT_ENDPOINT: &str = "https://openrouter.ai/api/v1";
+pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
+pub const TYPESAFE_API_KEY_ENV: &str = "TYPESAFE_API_KEY";
 const DEFAULT_CONCURRENCY: usize = 16;
+
+/// Who serves Jev when no config names an endpoint or a key variable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Provider {
+    #[default]
+    OpenRouter,
+    /// TypeSafe's own API, which makes Jev.
+    TypeSafe,
+}
+
+impl Provider {
+    /// The provider whose key is set, OpenRouter first; OpenRouter when
+    /// neither is, so the missing key is named.
+    pub fn from_keys(is_set: impl Fn(&str) -> bool) -> Self {
+        if !is_set(OPENROUTER_API_KEY_ENV) && is_set(TYPESAFE_API_KEY_ENV) {
+            Provider::TypeSafe
+        } else {
+            Provider::OpenRouter
+        }
+    }
+
+    /// Its model, key variable and endpoint. The model is Jev's latest
+    /// release, so decision checks follow new versions without config changes.
+    fn defaults(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Provider::OpenRouter => (
+                "~typesafe/jev-latest",
+                OPENROUTER_API_KEY_ENV,
+                "https://openrouter.ai/api/v1",
+            ),
+            Provider::TypeSafe => (
+                "jev-latest",
+                TYPESAFE_API_KEY_ENV,
+                "https://api.typesafe.ai/v1",
+            ),
+        }
+    }
+}
+
+/// What to add to "`variable` is not set" so people know the other way to
+/// reach Jev.
+pub fn other_key(variable: &str) -> &'static str {
+    if variable == OPENROUTER_API_KEY_ENV {
+        " (or set TYPESAFE_API_KEY to call TypeSafe's API directly)"
+    } else {
+        ""
+    }
+}
 
 /// The folder a config file configures, if `path` is one.
 pub fn config_dir(path: &str) -> Option<&str> {
@@ -133,9 +179,15 @@ pub fn parse(path: &str, text: &str) -> Result<FolderConfig, ConfigError> {
 pub struct Settings {
     /// Shallowest first; configs inside excluded folders are left out.
     configs: Vec<FolderConfig>,
+    /// Who serves Jev where no config names an endpoint or a key variable.
+    provider: Provider,
 }
 
 impl Settings {
+    pub fn set_provider(&mut self, provider: Provider) {
+        self.provider = provider;
+    }
+
     /// Adds a config; configs must come shallowest first, and a config
     /// inside a folder excluded by an earlier one must be left out.
     pub fn add(&mut self, config: FolderConfig) {
@@ -172,10 +224,20 @@ impl Settings {
         let text = |key: fn(&FolderConfig) -> Option<&str>, default: &str| {
             self.nearest(dir, key).unwrap_or(default).to_string()
         };
+        // A config naming where to call Jev keeps OpenRouter's defaults for
+        // the rest, whatever key the environment has.
+        let configured = self.nearest(dir, |c| c.endpoint.as_deref()).is_some()
+            || self.nearest(dir, |c| c.api_key_env.as_deref()).is_some();
+        let provider = if configured {
+            Provider::OpenRouter
+        } else {
+            self.provider
+        };
+        let (model, api_key_env, endpoint) = provider.defaults();
         DecisionConfig {
-            model: text(|c| c.model.as_deref(), DEFAULT_MODEL),
-            api_key_env: text(|c| c.api_key_env.as_deref(), DEFAULT_API_KEY_ENV),
-            endpoint: text(|c| c.endpoint.as_deref(), DEFAULT_ENDPOINT),
+            model: text(|c| c.model.as_deref(), model),
+            api_key_env: text(|c| c.api_key_env.as_deref(), api_key_env),
+            endpoint: text(|c| c.endpoint.as_deref(), endpoint),
             concurrency: self
                 .nearest(dir, |c| c.concurrency)
                 .unwrap_or(DEFAULT_CONCURRENCY),
@@ -197,6 +259,7 @@ impl Settings {
                 endpoint: Some(decision.endpoint.clone()),
                 concurrency: Some(decision.concurrency),
             }],
+            provider: Provider::default(),
         }
     }
 
@@ -240,5 +303,59 @@ pub fn depth(dir: &str) -> usize {
         0
     } else {
         dir.split('/').count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(provider: Provider, config: &str) -> Settings {
+        let mut settings = Settings::default();
+        settings.set_provider(provider);
+        settings.add(parse(".reqfile/config.yaml", config).expect("a valid config"));
+        settings
+    }
+
+    #[test]
+    fn openrouter_is_chosen_unless_only_the_typesafe_key_is_set() {
+        let set = |keys: &'static [&'static str]| move |v: &str| keys.contains(&v);
+        assert_eq!(Provider::from_keys(set(&[])), Provider::OpenRouter);
+        assert_eq!(
+            Provider::from_keys(set(&[OPENROUTER_API_KEY_ENV, TYPESAFE_API_KEY_ENV])),
+            Provider::OpenRouter
+        );
+        assert_eq!(
+            Provider::from_keys(set(&[TYPESAFE_API_KEY_ENV])),
+            Provider::TypeSafe
+        );
+    }
+
+    #[test]
+    fn typesafe_defaults_call_its_api_with_its_key() {
+        let jev = settings(Provider::TypeSafe, "").decision("");
+        assert_eq!(jev.endpoint, "https://api.typesafe.ai/v1");
+        assert_eq!(jev.api_key_env, TYPESAFE_API_KEY_ENV);
+        assert_eq!(jev.model, "jev-latest");
+    }
+
+    #[test]
+    fn a_config_naming_the_endpoint_keeps_openrouter_defaults() {
+        let jev = settings(
+            Provider::TypeSafe,
+            "decision:\n  endpoint: http://localhost:1\n",
+        )
+        .decision("");
+        assert_eq!(jev.endpoint, "http://localhost:1");
+        assert_eq!(jev.api_key_env, OPENROUTER_API_KEY_ENV);
+        assert_eq!(jev.model, "~typesafe/jev-latest");
+    }
+
+    #[test]
+    fn the_provider_changes_the_fingerprint_so_answers_are_not_mixed() {
+        assert_ne!(
+            settings(Provider::OpenRouter, "").fingerprint("", true),
+            settings(Provider::TypeSafe, "").fingerprint("", true)
+        );
     }
 }

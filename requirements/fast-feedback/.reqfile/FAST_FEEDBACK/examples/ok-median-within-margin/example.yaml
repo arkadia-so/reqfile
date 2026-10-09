@@ -1,0 +1,3 @@
+expected: ok
+rationale: "Every median is above its baseline but within the margin (29 s against 24 s \u00d7 1.25 = 30 s): the noise measured on an unchanged repository."
+origin: authored

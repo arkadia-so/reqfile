@@ -1,0 +1,29 @@
+# Decision check for CONTRACTS, asked to Jev about each unit (https://reqfile.dev)
+units:                      # step functions under core/
+  - { language: rust, rule: { kind: function_item, has: { field: name, regex: '^step$' } }, files: "**/core/**" }
+  - { language: python, rule: { kind: function_definition, has: { field: name, regex: '^step$' } }, files: "**/core/**" }
+  - language: typescript
+    rule:
+      any:
+        - { kind: function_declaration, has: { field: name, regex: '^step$' } }
+        - { kind: method_definition, has: { field: name, regex: '^step$' } }
+        - kind: arrow_function
+          inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+        - kind: function_expression
+          inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+    files: "**/core/**"
+  - language: tsx
+    rule:
+      any:
+        - { kind: function_declaration, has: { field: name, regex: '^step$' } }
+        - { kind: method_definition, has: { field: name, regex: '^step$' } }
+        - kind: arrow_function
+          inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+        - kind: function_expression
+          inside: { kind: variable_declarator, has: { field: name, regex: '^step$' } }
+    files: "**/core/**"
+question: Does this step function change state without asserting a meaningful invariant, precondition or postcondition about its state and event?
+violation_when: The step function computes a new state without any assertion in code of what must hold before or after the step, or its only assertions are trivially true or unrelated to the state and event (such as assert True or assert!(true)); comments stating a contract do not count.
+ok_when: The step function asserts in code conditions on its state, event or resulting state, as preconditions, postconditions or state invariants (assert!, debug_assert!, assert, or an invariant-checking call).
+fix_hint: State the invariants of the state and assert them, with the preconditions and postconditions of the step.
+thresholds: { violation_above: 0.8, pass_below: 0.2 }   # starting guesses; calibrate before blocking

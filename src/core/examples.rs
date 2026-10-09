@@ -36,10 +36,24 @@ pub struct Example {
     /// Files, relative to `files/`, the checks should flag on a violation.
     pub findings: Vec<String>,
     pub known: Option<Known>,
-    /// `split: holdout`: kept out of tuning, so its rates say whether a
-    /// change to the checks generalizes or only fits the examples it was
-    /// made for.
-    pub holdout: bool,
+    /// The split it belongs to, other than the default `tune`: `holdout`,
+    /// kept out of tuning, so its rates say whether a change to the checks
+    /// generalizes or only fits the examples it was made for, or any other
+    /// name, such as a confirmation set, reported apart by that name.
+    pub split: Option<String>,
+}
+
+/// The split of examples a change to the checks is tuned on.
+pub const DEFAULT_SPLIT: &str = "tune";
+/// The split of examples kept out of tuning.
+pub const HOLDOUT: &str = "holdout";
+
+/// Whether `name` can name a split: lowercase letters, digits and dashes.
+fn valid_split(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// Parses `example.yaml`: `expected` (`violation` or `ok`), and optionally
@@ -119,18 +133,20 @@ pub fn parse(path: &str, text: &str) -> Result<Example, ConfigError> {
             Some(known)
         }
     };
-    let holdout = match fields.optional("split") {
-        None => false,
+    let split = match fields.optional("split") {
+        None => None,
         Some(node) => {
             let line = node.line;
             match node.text(path, "split")?.as_str() {
-                "tune" => false,
-                "holdout" => true,
+                DEFAULT_SPLIT => None,
+                name if valid_split(name) => Some(name.to_string()),
                 other => {
                     return Err(ConfigError::at(
                         path,
                         line,
-                        format!("unknown `split: {other}`; expected `tune` or `holdout`"),
+                        format!(
+                            "invalid `split: {other}`; expected `tune` (the default), `holdout` or another name of lowercase letters, digits and dashes"
+                        ),
                     ));
                 }
             }
@@ -140,7 +156,7 @@ pub fn parse(path: &str, text: &str) -> Result<Example, ConfigError> {
         expected,
         findings,
         known,
-        holdout,
+        split,
     })
 }
 
@@ -199,6 +215,36 @@ impl Outcome {
             Outcome::Error(e) => format!("error: {e}"),
         }
     }
+
+    /// Its name in JSON output.
+    fn key(&self) -> &'static str {
+        match self {
+            Outcome::Caught => "caught",
+            Outcome::Missed => "missed",
+            Outcome::WrongFile(_) => "flagged_elsewhere",
+            Outcome::NotSelected => "not_selected",
+            Outcome::Uncertain => "uncertain",
+            Outcome::FalseAlarm => "false_alarm",
+            Outcome::Passed => "passed",
+            Outcome::Error(_) => "error",
+        }
+    }
+}
+
+/// The files the checks of requirement `id` flagged on a case, violations
+/// and advisory findings, sorted and without duplicates.
+pub fn flagged(id: &str, report: &Report) -> Vec<String> {
+    let mut files: Vec<String> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.requirement == id && matches!(f.kind, FindingKind::Violation | FindingKind::Advisory)
+        })
+        .filter_map(|f| f.file.clone())
+        .collect();
+    files.sort();
+    files.dedup();
+    files
 }
 
 /// What the checks of requirement `id` showed on a case.
@@ -244,9 +290,12 @@ pub struct Case {
     pub name: String,
     pub label: Label,
     pub known: Option<Known>,
-    pub holdout: bool,
+    /// Its split, `None` for the default one, `tune`.
+    pub split: Option<String>,
     /// One outcome per run, at least one.
     pub outcomes: Vec<Outcome>,
+    /// The files flagged on each run, in the order of `outcomes`.
+    pub flagged: Vec<Vec<String>>,
 }
 
 impl Case {
@@ -291,10 +340,10 @@ impl Case {
     }
 
     fn render(&self) -> Option<String> {
-        let name = if self.holdout {
-            format!("{} (held out)", self.name)
-        } else {
-            self.name.clone()
+        let name = match self.split.as_deref() {
+            None => self.name.clone(),
+            Some(HOLDOUT) => format!("{} (held out)", self.name),
+            Some(split) => format!("{} ({split})", self.name),
         };
         let known = if self.accepted() { " (known)" } else { "" };
         if !self.stable() {
@@ -331,6 +380,9 @@ pub enum Evidence {
 
 /// The examples of one requirement.
 pub struct Tested {
+    pub id: String,
+    /// The Reqfile of its block.
+    pub reqfile: String,
     /// The requirement id, with its Reqfile when several blocks share it.
     pub label: String,
     pub evidence: Evidence,
@@ -353,20 +405,41 @@ impl Tested {
         self.cases.iter().filter(|c| !c.stable()).count()
     }
 
+    /// Its cases by split: the default one first, even when empty, then
+    /// `holdout`, then the others by name.
+    fn splits(&self) -> Vec<(Option<&str>, Vec<&Case>)> {
+        let mut names: Vec<&str> = self
+            .cases
+            .iter()
+            .filter_map(|c| c.split.as_deref())
+            .collect();
+        names.sort_by_key(|name| (*name != HOLDOUT, *name));
+        names.dedup();
+        std::iter::once(None)
+            .chain(names.into_iter().map(Some))
+            .map(|split| {
+                let cases = self
+                    .cases
+                    .iter()
+                    .filter(|c| c.split.as_deref() == split)
+                    .collect();
+                (split, cases)
+            })
+            .collect()
+    }
+
     fn render(&self) -> String {
         let mut out = match self.evidence {
             Evidence::None => format!("{}  no evidence: no labeled examples\n", self.label),
-            // Held-out examples are reported apart: a change that raises the
-            // tuning rates alone fits its examples rather than the requirement.
-            Evidence::Measured if self.cases.iter().any(|c| c.holdout) => {
-                let (held, tuned): (Vec<&Case>, Vec<&Case>) =
-                    self.cases.iter().partition(|c| c.holdout);
-                format!(
-                    "{}  measured, no assertion\n  tuning: {}\n  held out: {}\n",
-                    self.label,
-                    rates(&tuned),
-                    rates(&held)
-                )
+            // Held-out examples, and any other split, are reported apart: a
+            // change that raises the tuning rates alone fits its examples
+            // rather than the requirement.
+            Evidence::Measured if self.cases.iter().any(|c| c.split.is_some()) => {
+                let mut out = format!("{}  measured, no assertion\n", self.label);
+                for (split, cases) in self.splits() {
+                    out += &format!("  {}: {}\n", split_label(split), rates(&cases));
+                }
+                out
             }
             Evidence::Measured => format!(
                 "{}  measured, no assertion: {}\n",
@@ -397,6 +470,15 @@ impl Tested {
             out += "  no violation examples: catches are not measured\n";
         }
         out
+    }
+}
+
+/// How a split is named in reports for people: `tuning`, `held out`, or its name.
+fn split_label(split: Option<&str>) -> &str {
+    match split {
+        None => "tuning",
+        Some(HOLDOUT) => "held out",
+        Some(name) => name,
     }
 }
 
@@ -597,16 +679,23 @@ pub fn render_pretty(tested: &[Tested], runs: usize, style: &Style) -> (String, 
             }
         };
         out += &format!("  {mark} {:width$}  {text}\n", t.label);
-        if t.evidence == Evidence::Measured && t.cases.iter().any(|c| c.holdout) {
-            let (held, tuned): (Vec<&Case>, Vec<&Case>) = all.iter().partition(|c| c.holdout);
-            out += &format!(
-                "    {}\n",
-                style.dim(&format!("tuning    {}", compact_rates(&tuned)))
-            );
-            out += &format!(
-                "    {}\n",
-                style.dim(&format!("held out  {}", compact_rates(&held)))
-            );
+        if t.evidence == Evidence::Measured && t.cases.iter().any(|c| c.split.is_some()) {
+            let splits = t.splits();
+            let width = splits
+                .iter()
+                .map(|(split, _)| split_label(*split).len())
+                .max()
+                .unwrap_or(0);
+            for (split, cases) in splits {
+                out += &format!(
+                    "    {}\n",
+                    style.dim(&format!(
+                        "{:width$}  {}",
+                        split_label(split),
+                        compact_rates(&cases)
+                    ))
+                );
+            }
         }
         let lines: Vec<String> = if one_cause && !style.verbose {
             Vec::new()
@@ -668,4 +757,120 @@ pub fn render_pretty(tested: &[Tested], runs: usize, style: &Style) -> (String, 
         style.dim(&context.join(" · "))
     );
     (out, code)
+}
+
+/// `reqfile eval --format json`: for each requirement, its counts per split
+/// and every case with its outcome, as one JSON document, and the exit code
+/// of the plain rendering.
+pub fn render_json(tested: &[Tested], runs: usize) -> (String, i32) {
+    use serde_json::{Value, json};
+    let (_, code) = render(tested, runs);
+    let label = |label: Label| match label {
+        Label::Violation => "violation",
+        Label::Ok => "ok",
+    };
+    let evidence = |evidence: Evidence| match evidence {
+        Evidence::Asserted => "asserted",
+        Evidence::Measured => "measured",
+        Evidence::None => "none",
+    };
+    let counts = |split: Option<&str>, cases: &[&Case]| -> Value {
+        let count = |label: Label, keys: &[&str]| {
+            cases
+                .iter()
+                .filter(|c| c.label == label && keys.contains(&c.outcome().key()))
+                .count()
+        };
+        let total = |label: Label| {
+            cases
+                .iter()
+                .filter(|c| c.label == label && !matches!(c.outcome(), Outcome::Error(_)))
+                .count()
+        };
+        json!({
+            "split": split.unwrap_or(DEFAULT_SPLIT),
+            "violations": {
+                "total": total(Label::Violation),
+                "caught": count(Label::Violation, &["caught"]),
+                "missed": count(Label::Violation, &["missed", "flagged_elsewhere"]),
+                "not_selected": count(Label::Violation, &["not_selected"]),
+                "uncertain": count(Label::Violation, &["uncertain"]),
+            },
+            "ok": {
+                "total": total(Label::Ok),
+                "passed": count(Label::Ok, &["passed"]),
+                "flagged": count(Label::Ok, &["false_alarm"]),
+                "uncertain": count(Label::Ok, &["uncertain"]),
+            },
+            "errors": cases.iter().filter(|c| matches!(c.outcome(), Outcome::Error(_))).count(),
+            "unstable": cases.iter().filter(|c| !c.stable()).count(),
+        })
+    };
+    let case = |case: &Case| -> Value {
+        let outcome = case.outcome();
+        let run = case
+            .outcomes
+            .iter()
+            .position(|o| o == outcome)
+            .expect("the counted outcome is one of the runs");
+        let mut value = json!({
+            "name": case.name,
+            "split": case.split.as_deref().unwrap_or(DEFAULT_SPLIT),
+            "expected": label(case.label),
+            "outcome": outcome.key(),
+            "accepted": case.accepted(),
+            "flagged": case.flagged[run],
+        });
+        if let Some(known) = case.known {
+            value["known"] = json!(match known {
+                Known::Miss => "miss",
+                Known::FalseAlarm => "false_alarm",
+            });
+        }
+        if let Outcome::Error(message) = outcome {
+            value["error"] = json!(message);
+        }
+        if runs > 1 {
+            value["stable"] = json!(case.stable());
+            value["outcomes"] = json!(case.outcomes.iter().map(Outcome::key).collect::<Vec<_>>());
+        }
+        value
+    };
+    let requirements: Vec<Value> = tested
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "reqfile": t.reqfile,
+                "evidence": evidence(t.evidence),
+                "failed": t.failed(),
+                "splits": t
+                    .splits()
+                    .iter()
+                    .filter(|(split, cases)| split.is_some() || !cases.is_empty())
+                    .map(|(split, cases)| counts(*split, cases))
+                    .collect::<Vec<_>>(),
+                "cases": t.cases.iter().map(case).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let with = |e: Evidence| tested.iter().filter(|t| t.evidence == e).count();
+    let document = json!({
+        "requirements": requirements,
+        "summary": {
+            "requirements": tested.len(),
+            "asserted": with(Evidence::Asserted),
+            "measured": with(Evidence::Measured),
+            "without_evidence": with(Evidence::None),
+            "examples": tested.iter().map(|t| t.cases.len()).sum::<usize>(),
+            "runs": runs,
+            "unstable": tested.iter().map(Tested::unstable).sum::<usize>(),
+            "failing": tested.iter().filter(|t| t.failed()).count(),
+        },
+        "exit_code": code,
+    });
+    (
+        serde_json::to_string_pretty(&document).expect("the eval serializes to JSON") + "\n",
+        code,
+    )
 }

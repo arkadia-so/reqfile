@@ -127,6 +127,8 @@ fn changed_accepts_other_options_after_it() {
 #[test]
 fn changed_without_a_base_is_a_config_error() {
     let repo = branch_repo(&[("LIST", LIST_TXT)]);
+    // A remote whose default branch reqfile cannot find.
+    repo.git(&["remote", "add", "origin", "/nonexistent"]);
 
     let run = repo.run(&["check", "--changed"]);
 
@@ -650,6 +652,94 @@ fn a_settings_change_rechecks_the_decision_checks_it_applies_to() {
     assert!(
         !run.stdout.contains("LIST"),
         "a model change leaves command checks incremental: {}",
+        run.stdout
+    );
+}
+
+#[test]
+fn without_a_remote_changed_compares_with_the_local_main_branch_and_says_so() {
+    let repo = branch_repo(&[("LIST", LIST_TXT)]);
+    repo.write("committed.txt", "").commit("on feature");
+    repo.write("untracked.txt", "");
+
+    let run = repo.run(&["check", "--changed"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("note  --changed compares with main: this repository has no remote\n"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .contains("LIST  got committed.txt untracked.txt\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn without_a_remote_or_a_main_branch_changed_compares_with_the_last_commit() {
+    let repo = branch_repo(&[("LIST", LIST_TXT)]);
+    repo.git(&["branch", "-q", "-D", "main"]);
+    repo.write("committed.txt", "").commit("on feature");
+    repo.write("untracked.txt", "");
+
+    let run = repo.run(&["check", "--changed"]);
+
+    assert!(
+        run.stdout
+            .contains("--changed compares with HEAD, the last commit"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("LIST  got untracked.txt\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn before_the_first_commit_changed_checks_everything() {
+    let repo = repo!();
+    // A branch with no commit yet, as right after `git init`.
+    repo.git(&["checkout", "-q", "--orphan", "fresh"]);
+    repo.write("Reqfile.yaml", &reqfile(&[("LIST", LIST_TXT)]));
+    repo.write("new.txt", "");
+
+    let run = repo.run(&["check", "--changed"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout
+            .contains("there is no commit yet, so every file is new"),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.contains("LIST  got new.txt\n"), "{}", run.stdout);
+}
+
+#[test]
+fn without_origin_head_changed_compares_with_origin_main_and_says_how_to_set_it() {
+    let repo = branch_repo(&[("LIST", LIST_TXT)]);
+    repo.git(&["remote", "add", "origin", "/nonexistent"]);
+    repo.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+    repo.write("untracked.txt", "");
+
+    let run = repo.run(&["check", "--changed"]);
+
+    assert!(
+        run.stdout.contains(
+            "note  --changed compares with origin/main: origin/HEAD is not set (git remote set-head origin --auto sets it)"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("LIST  got untracked.txt\n"),
+        "{}",
         run.stdout
     );
 }

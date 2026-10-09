@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Install reqfile, write a first Reqfile.yaml, and wire the checks into your agent&#x27;s loop and CI." />
+    <link rel="canonical" href="https://reqfile.dev/docs" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs" aria-current="page">Getting started</a>
+            <ul>
+              <li><a href="#what-it-is">What it is</a></li>
+              <li><a href="#set-up-with-an-agent">Set up with an agent</a></li>
+              <li><a href="#install">Install</a></li>
+              <li><a href="#first-reqfile">Write a first Reqfile</a></li>
+              <li><a href="#first-run">Run it</a></li>
+              <li><a href="#agent-instructions">In your agent instructions</a></li>
+              <li><a href="#claude-code-hook">As a Claude Code hook</a></li>
+              <li><a href="#ci">In CI</a></li>
+              <li><a href="#security">Security</a></li>
+            </ul></li>
+          <li><a href="/docs/reqfile">Reqfile.yaml</a></li>
+          <li><a href="/docs/checks">Checks</a></li>
+          <li><a href="/docs/packages">Packages</a></li>
+          <li><a href="/docs/evals">Evals</a></li>
+          <li><a href="/docs/cli">CLI</a></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>Getting started</h1>
+        <p class="lead">Reqfile checks that a codebase meets its requirements, so agents and humans get concrete, fixable violations instead of vague advice.</p>
+        <section aria-labelledby="what-it-is">
+          <h2 id="what-it-is"><a href="#what-it-is">What it is</a></h2>
+<p>Requirements live in <code>Reqfile.yaml</code> files next to the code. Each one says what must hold, why, for whom, and how it is checked: with an existing tool when the rule is mechanical (a <code>command</code> check), or with <a href="https://docs.typesafe.ai">Jev</a>, a decision model returning calibrated probabilities, when it needs judgment (a <code>decision</code> check). A requirement written once can be taken by reference in other folders and repositories (<code>use</code>).</p>
+<div class="code"><span class="code-lang">terminal</span><pre><code>$ reqfile check
+FAIL_FAST  services/api/handler.py:42  Do not use bare `except` (E722)
+  fix: Catch the specific expected error and handle it visibly, or let it propagate.
+advisory  DECOMPLECT  services/sync/worker.ts:88  p=0.91  It mixes several jobs.
+  fix: Split the I/O from the logic into two functions.
+
+14 checks run, 2 with nothing to check, 212 code units judged. 1 violation, 1 advisory finding, 0 errors.</code></pre></div>
+        </section>
+        <section aria-labelledby="set-up-with-an-agent">
+          <h2 id="set-up-with-an-agent"><a href="#set-up-with-an-agent">Set up with an agent</a></h2>
+<p>Give your coding agent (Claude Code, Codex, Cursor…) this prompt. It is a request to the agent, not a shell command:</p>
+<div class="code"><span class="code-lang">prompt</span><pre><code>set up https://reqfile.dev/SKILL.md</code></pre></div>
+<p>The <a href="/SKILL.md">agent skill</a> tells it to:</p>
+<ol>
+<li>inspect the repository's agent instructions, existing Reqfiles, tool versions, package scripts and CI, and preserve them;</li>
+<li>install the CLI through the project's tool manager, respecting an existing version pin;</li>
+<li>if there are no requirements, derive a small initial set from your stated constraints and the checks the project already runs, each with a precise <code>must</code>, its <code>why</code>, a working check and an actionable <code>fix_hint</code>;</li>
+<li>run <code>reqfile list</code>, <code>reqfile explain .</code> and <code>reqfile check</code>, and report the actual coverage and remaining findings;</li>
+<li>add the everyday workflow to the repository's agent instructions, and a CI job.</li>
+</ol>
+        </section>
+        <section aria-labelledby="install">
+          <h2 id="install"><a href="#install">Install</a></h2>
+<p>With <a href="https://mise.jdx.dev">mise</a>, from the prebuilt binaries (macOS and Linux):</p>
+<div class="code"><span class="code-lang">toml</span><pre><code># mise.toml
+[tools]
+"github:arkadia-so/reqfile" = "0.5"</code></pre></div>
+<p>Or with the install script:</p>
+<div class="code"><span class="code-lang">sh</span><pre><code>curl -LsSf https://github.com/arkadia-so/reqfile/releases/latest/download/reqfile-installer.sh | sh</code></pre></div>
+<p>Or <code>cargo binstall reqfile</code>, or from source with <code>cargo install reqfile --locked</code> (Rust 1.90 or later).</p>
+<p>reqfile runs on macOS and Linux; Windows is not supported. It needs <code>git</code>, <code>sh</code>, <code>tar</code> (for requirements taken from other repositories), and the tools your Reqfiles' commands call.</p>
+        </section>
+        <section aria-labelledby="first-reqfile">
+          <h2 id="first-reqfile"><a href="#first-reqfile">Write a first Reqfile</a></h2>
+<p>At the repository root, for a Python project already using Ruff:</p>
+<div class="code"><span class="code-lang">Reqfile.yaml</span><pre><code>reqfile: 1
+code:
+  - id: EXPLICIT_EXCEPTIONS
+    must: Exception handlers name the exceptions they catch; no bare except clauses.
+    why: A bare except also catches interrupts and hides unexpected failures.
+    checks:
+      - command:
+          run: ruff check --isolated --select E722 --output-format sarif
+          files: "**/*.py"
+          pass_files: true
+          format: sarif
+          fast: true
+          fix_hint: Catch the specific expected exception or let it propagate.</code></pre></div>
+<p>Start from the checks the project already runs: its linters, its tests, its scripts. Add a <a href="/docs/checks#decision-checks">decision check</a> only when a rule needs judgment. You can also take requirements someone published with <a href="/docs/packages#add-and-update"><code>reqfile add</code></a>.</p>
+        </section>
+        <section aria-labelledby="first-run">
+          <h2 id="first-run"><a href="#first-run">Run it</a></h2>
+<div class="code"><span class="code-lang">sh</span><pre><code>reqfile list                     # every requirement, with its type and checks
+reqfile explain src/             # the requirements that apply to a folder
+reqfile check                    # run every check
+reqfile check --fast --changed   # the short loop, while editing</code></pre></div>
+<p>Fix a finding using its requirement, location and fix hint, then rerun. Exit 0 means every blocking check ran and passed; 1 means blocking violations; 3 means a check could not run or a configuration is wrong, which is never a pass. See <a href="/docs/cli#exit-codes">exit codes</a>.</p>
+<p>A repository without any <code>Reqfile.yaml</code> is an error, not a green run: <code>reqfile check</code> and <code>reqfile eval</code> exit 3 and say how to set reqfile up.</p>
+<div class="code"><span class="code-lang">terminal</span><pre><code>$ reqfile check
+error  no Reqfile.yaml in this repository: none among the files git lists under /work/app (tracked, or untracked and not ignored), so there is nothing to check.
+
+    reqfile checks a codebase against requirements written in Reqfile.yaml files. […]
+
+    To set it up:
+      - If you are an agent: read https://reqfile.dev/SKILL.md and follow "When asked to set up Reqfile".
+      - To take requirements someone published: reqfile add &lt;owner/repo@tag&gt;
+      - Or write Reqfile.yaml at the repository root, for example: […]</code></pre></div>
+        </section>
+        <section aria-labelledby="agent-instructions">
+          <h2 id="agent-instructions"><a href="#agent-instructions">In your agent instructions</a></h2>
+<p>Add this to <code>AGENTS.md</code>, <code>CLAUDE.md</code> or whichever instructions file your agents read:</p>
+<div class="code"><span class="code-lang">markdown</span><pre><code>Before editing a folder, run `reqfile explain &lt;folder&gt;`.
+Before finishing, run `reqfile check --fast --changed` and fix blocking findings.
+Run the full `reqfile check` before declaring the requirements checks complete.
+Reqfile usage and setup: https://reqfile.dev/SKILL.md</code></pre></div>
+        </section>
+        <section aria-labelledby="claude-code-hook">
+          <h2 id="claude-code-hook"><a href="#claude-code-hook">As a Claude Code hook</a></h2>
+<p>A Stop hook sends violations back to the agent before it finishes:</p>
+<div class="code"><span class="code-lang">json</span><pre><code>{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command",
+        "command": "jq -e '.stop_hook_active' &gt;/dev/null &amp;&amp; exit 0; reqfile check --fast --changed &gt;&amp;2 || exit 2" }] }
+    ]
+  }
+}</code></pre></div>
+<p>With <code>--fast</code>, only decision checks (advisory unless blocking) and the command checks declared <code>fast: true</code> run, so the hook blocks only on those; declare quick commands <code>fast</code>. The <code>stop_hook_active</code> guard lets the agent stop after one forced retry, which avoids infinite loops but allows finishing with violations left: CI remains the gate. When the output holds <code>decide</code> lines, tell the agent not to fix the findings marked <code>breaks:</code> but to ask you: they <a href="/docs/checks#contradictions">contradict another requirement</a>.</p>
+        </section>
+        <section aria-labelledby="ci">
+          <h2 id="ci"><a href="#ci">In CI</a></h2>
+<p>As a required check on pull requests:</p>
+<div class="code"><span class="code-lang">yaml</span><pre><code># .github/workflows/reqfile.yml
+name: reqfile
+on: pull_request
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: cargo install reqfile --locked
+      # Also install the tools the Reqfiles' commands use (ruff, ast-grep, knip, ...).
+      - run: reqfile check
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - run: reqfile eval</code></pre></div>
+<p><code>fetch-depth: 0</code> gives <code>--changed</code> the history it compares against. Decision answers are cached in <code>.git/reqfile/</code>; keep that folder between runs (for example with <code>actions/cache</code>) to avoid asking again about unchanged code.</p>
+        </section>
+        <section aria-labelledby="security">
+          <h2 id="security"><a href="#security">Security</a></h2>
+<p>Reqfiles, configs and requirements taken with <code>use</code> are executable code:</p>
+<ul>
+<li>A command check runs its shell command on your machine or CI runner, with your environment.</li>
+<li>A config chooses the Jev endpoint and the environment variable whose value is sent to it as the API key.</li>
+<li>Decision checks send the code they select to the configured provider.</li>
+<li>Taking a requirement from another repository means running that repository's commands in your CI. Pin it to a commit you trust, and read what <code>reqfile add</code> prints before adding it.</li>
+</ul>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <span></span>
+          <a class="next" href="/docs/reqfile"><span>Next</span>Reqfile.yaml</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

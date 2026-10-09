@@ -1,0 +1,3 @@
+expected: ok
+rationale: "A full run over the cap is baselined at its current value, marked over_cap with the ticket that shards it; its median is within the margin, so it passes today and can only go down."
+origin: authored

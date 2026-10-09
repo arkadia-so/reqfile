@@ -385,13 +385,19 @@ fn example_yaml_rejects_unknown_keys_naming_file_and_line() {
 }
 
 #[test]
-fn split_accepts_only_tune_or_holdout() {
-    let error = eval_error("expected: ok\nsplit: test\n", true);
-    assert!(
-        error.contains(".reqfile/RULE/examples/case/example.yaml:2: unknown `split: test`; expected `tune` or `holdout`"),
-        "{error}"
-    );
-    for split in ["tune", "holdout"] {
+fn split_accepts_tune_holdout_or_a_name_of_lowercase_letters_digits_and_dashes() {
+    for invalid in ["Confirmation", "confirmation_1", "two words"] {
+        let error = eval_error(&format!("expected: ok\nsplit: {invalid}\n"), true);
+        assert!(
+            error.contains(".reqfile/RULE/examples/case/example.yaml:2: invalid `split: "),
+            "{error}"
+        );
+        assert!(
+            error.contains("expected `tune` (the default), `holdout` or another name of lowercase letters, digits and dashes"),
+            "{error}"
+        );
+    }
+    for split in ["tune", "holdout", "confirmation-1"] {
         let run = example_repo(&format!("expected: ok\nsplit: {split}\n"), true).run(&["eval"]);
         assert_eq!(run.code, 0, "{}", run.output());
     }

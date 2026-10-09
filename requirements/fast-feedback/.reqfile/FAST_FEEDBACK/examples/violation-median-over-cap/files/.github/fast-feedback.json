@@ -1,0 +1,19 @@
+{
+  "margin": 0.25,
+  "samples": 5,
+  "cap_seconds": 180,
+  "scenarios": [
+    {
+      "id": "pr-test",
+      "workflow": "ci.yml",
+      "job": "test",
+      "baseline_seconds": 170
+    },
+    {
+      "id": "pr-lint",
+      "workflow": "ci.yml",
+      "job": "lint",
+      "baseline_seconds": 40
+    }
+  ]
+}

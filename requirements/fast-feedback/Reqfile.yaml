@@ -1,0 +1,22 @@
+# FAST_FEEDBACK, a reqfile requirement package (https://reqfile.dev)
+# Scenarios and baselines live in the repository's .github/fast-feedback.json; see README.md.
+reqfile: 1
+
+process:
+  - id: FAST_FEEDBACK
+    must: The feedback loop's latency never goes up; it only ratchets down.
+    why: Every second of waiting for a check is paid on every change, by every person and agent, and a loop that slows down a little at a time is never noticed until it is slow.
+    who: Anyone changing CI, the checks or the build; agents waiting for a check.
+    checks:
+      - command:
+          run: $REQFILE_ASSETS/check.sh
+          fast: true
+          files: ".github/**"
+          timeout: 1800
+          fix_hint: Cover each pull-request job with a scenario, keep baselines under the cap or mark them over_cap with a todo, and make a slower scenario fast again (a baseline is raised only by hand, with the reason in the pull request).
+      - command:
+          run: $REQFILE_ASSETS/ratchet.sh
+          fast: true
+          files: ".github/**"
+          mode: advisory
+          fix_hint: Lower the baseline to the value given (a nightly ratchet can commit it itself, README.md).

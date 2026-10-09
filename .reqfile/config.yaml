@@ -1,0 +1,12 @@
+# Alpha requirement packages, written with an agent and not yet reviewed by
+# hand: excluded, so nothing checks, evaluates or imports them. Delete a
+# package's line to start reviewing it; CI then evaluates its examples.
+exclude:
+  - requirements/composition/**
+  - requirements/contracts/**
+  - requirements/decomplect/**
+  - requirements/fail-fast/**
+  - requirements/functional-core/**
+  - requirements/parse-dont-validate/**
+  - requirements/simulation/**
+  - requirements/unused-code/**

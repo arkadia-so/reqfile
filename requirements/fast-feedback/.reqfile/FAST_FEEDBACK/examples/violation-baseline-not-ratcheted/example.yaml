@@ -1,0 +1,3 @@
+expected: violation
+rationale: "The test job measured 18 s then 19 s, both under its baseline of 24 s minus half the margin (21 s): the baseline must come down to 22 s (19 s plus half the margin), so the gain cannot be lost unseen. The advisory ratchet check flags it."
+origin: authored

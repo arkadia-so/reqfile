@@ -1,0 +1,3 @@
+expected: ok
+rationale: "The test job was under the ratchet floor one night only (18 s, after 23 s): one fast night may be noise, so the baseline stays."
+origin: authored

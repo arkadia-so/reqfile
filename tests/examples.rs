@@ -872,3 +872,209 @@ fn pretty_eval_is_a_table_of_requirements_with_their_rates() {
         run.stdout
     );
 }
+
+#[test]
+fn eval_json_gives_each_requirement_its_counts_per_split_and_every_case_with_its_outcome() {
+    let repo = probable_todo_repo();
+    let examples = ".reqfile/NO_TODO/examples";
+    write_case(
+        &repo,
+        &format!("{examples}/violation-todo/notes.txt"),
+        "TODO\n",
+    );
+    write_case(
+        &repo,
+        &format!("{examples}/violation-lowercase/notes.txt"),
+        "todo\n",
+    );
+    repo.write(
+        &format!("{examples}/violation-lowercase/example.yaml"),
+        "expected: violation\nknown: miss\nsplit: confirmation-1\n",
+    );
+    write_case(
+        &repo,
+        &format!("{examples}/violation-elsewhere/a.txt"),
+        "fine\n",
+    );
+    repo.write(
+        &format!("{examples}/violation-elsewhere/files/b.txt"),
+        "TODO\n",
+    );
+    repo.write(
+        &format!("{examples}/violation-elsewhere/example.yaml"),
+        "expected: violation\nfindings: [a.txt]\nsplit: holdout\n",
+    );
+    write_case(
+        &repo,
+        &format!("{examples}/ok-mentions-todo/notes.txt"),
+        "Never write TODO.\n",
+    );
+
+    let run = repo.run(&["eval", "--format", "json"]);
+    let plain = repo.run(&["eval"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert_eq!(
+        run.code, plain.code,
+        "the exit code does not depend on the format"
+    );
+    let json = run.json();
+    assert_eq!(json["exit_code"], 0);
+    assert_eq!(json["summary"]["examples"], 4);
+    assert_eq!(json["summary"]["failing"], 0);
+    let requirement = &json["requirements"][0];
+    assert_eq!(requirement["id"], "NO_TODO");
+    assert_eq!(requirement["evidence"], "measured");
+    assert_eq!(requirement["failed"], false);
+    let case = |name: &str| {
+        requirement["cases"]
+            .as_array()
+            .expect("cases")
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("no case {name}: {requirement}"))
+            .clone()
+    };
+    assert_eq!(
+        case("violation-todo"),
+        serde_json::json!({"name": "violation-todo", "split": "tune", "expected": "violation", "outcome": "caught", "accepted": true, "flagged": ["notes.txt"]})
+    );
+    assert_eq!(
+        case("violation-lowercase"),
+        serde_json::json!({"name": "violation-lowercase", "split": "confirmation-1", "expected": "violation", "outcome": "missed", "accepted": true, "flagged": [], "known": "miss"})
+    );
+    assert_eq!(case("violation-elsewhere")["outcome"], "flagged_elsewhere");
+    assert_eq!(
+        case("violation-elsewhere")["flagged"],
+        serde_json::json!(["b.txt"])
+    );
+    assert_eq!(case("ok-mentions-todo")["outcome"], "false_alarm");
+    assert_eq!(
+        requirement["splits"],
+        serde_json::json!([
+            {"split": "tune", "violations": {"total": 1, "caught": 1, "missed": 0, "not_selected": 0, "uncertain": 0}, "ok": {"total": 1, "passed": 0, "flagged": 1, "uncertain": 0}, "errors": 0, "unstable": 0},
+            {"split": "holdout", "violations": {"total": 1, "caught": 0, "missed": 1, "not_selected": 0, "uncertain": 0}, "ok": {"total": 0, "passed": 0, "flagged": 0, "uncertain": 0}, "errors": 0, "unstable": 0},
+            {"split": "confirmation-1", "violations": {"total": 1, "caught": 0, "missed": 1, "not_selected": 0, "uncertain": 0}, "ok": {"total": 0, "passed": 0, "flagged": 0, "uncertain": 0}, "errors": 0, "unstable": 0}
+        ])
+    );
+}
+
+#[test]
+fn eval_json_gives_the_error_of_a_case_that_cannot_run_and_each_run_with_repeat() {
+    let repo = repo!();
+    repo.write(
+        "Reqfile.yaml",
+        &reqfile(&[(
+            "RULE",
+            "- command:\n    run: echo broken >&2; exit 2\n    fix_hint: x",
+        )]),
+    );
+    write_case(&repo, ".reqfile/RULE/examples/ok-any/notes.txt", "text\n");
+
+    let run = repo.run(&["eval", "--format", "json", "--repeat", "2"]);
+
+    assert_eq!(run.code, 3, "{}", run.output());
+    let json = run.json();
+    let case = &json["requirements"][0]["cases"][0];
+    assert_eq!(case["outcome"], "error");
+    assert!(
+        case["error"].as_str().is_some_and(|e| e.contains("broken")),
+        "{case}"
+    );
+    assert_eq!(case["stable"], true);
+    assert_eq!(case["outcomes"], serde_json::json!(["error", "error"]));
+    assert_eq!(json["requirements"][0]["splits"][0]["errors"], 1);
+    assert_eq!(json["summary"]["runs"], 2);
+}
+
+#[test]
+fn every_named_split_is_measured_apart_by_its_name() {
+    let repo = probable_todo_repo();
+    let examples = ".reqfile/NO_TODO/examples";
+    write_case(
+        &repo,
+        &format!("{examples}/violation-todo/notes.txt"),
+        "TODO\n",
+    );
+    write_case(&repo, &format!("{examples}/ok-done/notes.txt"), "done\n");
+    for (case, content, split) in [
+        ("violation-lowercase", "todo: finish\n", "holdout"),
+        ("violation-second", "TODO again\n", "confirmation-1"),
+    ] {
+        write_case(&repo, &format!("{examples}/{case}/notes.txt"), content);
+        repo.write(
+            &format!("{examples}/{case}/example.yaml"),
+            &format!("expected: violation\nsplit: {split}\n"),
+        );
+    }
+
+    let plain = repo.run(&["eval"]);
+    let pretty = repo.run(&["eval", "--format", "pretty"]);
+
+    assert_eq!(plain.code, 0, "{}", plain.output());
+    assert!(
+        plain.stdout.starts_with(
+            "NO_TODO  measured, no assertion\n  tuning: 1 of 1 violations caught (95% interval 21 to 100%; 0 missed, 0 not selected, 0 uncertain); 0 of 1 correct examples flagged (95% interval 0 to 79%; 0 uncertain)\n  held out: 0 of 1 violations caught (95% interval 0 to 79%; 1 missed, 0 not selected, 0 uncertain); 0 of 0 correct examples flagged (0 uncertain)\n  confirmation-1: 1 of 1 violations caught (95% interval 21 to 100%; 0 missed, 0 not selected, 0 uncertain); 0 of 0 correct examples flagged (0 uncertain)\n  violation-lowercase (held out): missed\n"
+        ),
+        "{}",
+        plain.stdout
+    );
+    assert!(
+        pretty.stdout.contains(
+            "    tuning          caught 1/1 (21–100%) · false alarms 0/1 (0–79%)\n    held out        caught 0/1 (0–79%) · false alarms 0/0\n    confirmation-1  caught 1/1 (21–100%) · false alarms 0/0\n"
+        ),
+        "{}",
+        pretty.stdout
+    );
+}
+
+#[test]
+fn command_override_measures_another_command_for_this_run_without_writing_any_reqfile() {
+    let repo = no_todo_repo();
+    // The working copy of the check also flags lowercase todo.
+    repo.write(
+        ".reqfile/NO_TODO/check-dev.sh",
+        "#!/bin/sh\nif grep -il TODO \"$@\"; then exit 1; fi\n",
+    );
+    std::process::Command::new("chmod")
+        .args(["+x", ".reqfile/NO_TODO/check-dev.sh"])
+        .current_dir(repo.path())
+        .status()
+        .expect("chmod");
+    write_case(
+        &repo,
+        ".reqfile/NO_TODO/examples/violation-lowercase/notes.txt",
+        "todo\n",
+    );
+    let reqfile_before =
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("Reqfile.yaml");
+
+    let published = repo.run(&["eval"]);
+    let working = repo.run(&[
+        "eval",
+        "--command-override",
+        "$REQFILE_ASSETS/check.sh=>$REQFILE_ASSETS/check-dev.sh",
+    ]);
+    let typo = repo.run(&["eval", "--command-override", "check-typo.sh=>check-dev.sh"]);
+
+    assert_eq!(published.code, 1, "{}", published.output());
+    assert_eq!(working.code, 0, "{}", working.output());
+    assert!(
+        working
+            .stdout
+            .contains("NO_TODO  asserted: 1 examples, 1 as labeled\n"),
+        "{}",
+        working.stdout
+    );
+    assert_eq!(typo.code, 3, "{}", typo.output());
+    assert!(
+        typo.stderr
+            .contains("--command-override: no command check runs `check-typo.sh`"),
+        "{}",
+        typo.stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("Reqfile.yaml"),
+        reqfile_before
+    );
+}

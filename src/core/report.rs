@@ -107,9 +107,10 @@ pub struct Setup {
 impl Setup {
     pub fn describe(&self) -> String {
         format!(
-            "{} is not set: the decision checks of {} will not judge any code, nor will conflicts between requirements be looked for. Set it, or name another variable in decision.api_key_env of .reqfile/config.yaml.",
+            "{} is not set: the decision checks of {} will not judge any code, nor will conflicts between requirements be looked for. Set it{}, or name another variable in decision.api_key_env of .reqfile/config.yaml.",
             self.variable,
-            self.requirements.join(", ")
+            self.requirements.join(", "),
+            super::config::other_key(&self.variable)
         )
     }
 }
@@ -149,6 +150,9 @@ pub enum CheckRun {
 
 #[derive(Debug, Default)]
 pub struct Report {
+    /// What the run chose that the reader should know, such as the base of
+    /// `--changed` when it is not the remote's default branch.
+    pub notes: Vec<String>,
     pub findings: Vec<Finding>,
     pub errors: Vec<Error>,
     pub sources: Vec<Source>,
@@ -222,6 +226,9 @@ impl Report {
 
     pub fn render_summary(&self) -> String {
         let mut out = String::new();
+        for note in &self.notes {
+            out += &format!("note  {note}\n");
+        }
         for setup in &self.setup {
             out += &format!("setup  {}\n", setup.describe());
         }
@@ -289,7 +296,11 @@ impl Report {
                 }
             }
             for line in rest.lines() {
-                out += &format!("    {line}\n");
+                if line.is_empty() {
+                    out += "\n";
+                } else {
+                    out += &format!("    {line}\n");
+                }
             }
         }
         for source in &self.sources {
@@ -342,6 +353,8 @@ impl Report {
     pub fn render_json(&self) -> String {
         #[derive(Serialize)]
         struct Json<'r> {
+            #[serde(skip_serializing_if = "<[String]>::is_empty")]
+            notes: &'r [String],
             findings: &'r [Finding],
             errors: &'r [Error],
             #[serde(skip_serializing_if = "<[Source]>::is_empty")]
@@ -352,6 +365,7 @@ impl Report {
             exit_code: i32,
         }
         let json = Json {
+            notes: &self.notes,
             findings: &self.findings,
             errors: &self.errors,
             sources: &self.sources,

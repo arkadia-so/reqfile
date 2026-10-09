@@ -712,3 +712,52 @@ fn a_command_in_advisory_mode_reports_findings_without_blocking() {
         unknown.stdout
     );
 }
+
+#[test]
+fn command_override_runs_another_command_for_this_run_and_an_unmatched_one_is_an_error() {
+    let repo = repo!();
+    let reqfile_text = reqfile(&[(
+        "RULE",
+        "- command:\n    run: bunx @scope/checker@0.3.0 --strict\n    fix_hint: Fix it.",
+    )]);
+    repo.write("Reqfile.yaml", &reqfile_text);
+    repo.write("a.txt", "");
+
+    let run = repo.run(&[
+        "check",
+        "--command-override",
+        "bunx @scope/checker@0.3.0=>echo working copy; exit 1; :",
+    ]);
+    let unmatched = repo.run(&[
+        "check",
+        "--command-override",
+        "bunx @scope/checker@0.4.0=>true",
+    ]);
+    let malformed = repo.run(&["check", "--command-override", "no arrow"]);
+
+    assert_eq!(run.code, 1, "{}", run.output());
+    assert!(
+        run.stdout.contains("RULE  working copy\n"),
+        "{}",
+        run.stdout
+    );
+    assert_eq!(unmatched.code, 3, "{}", unmatched.output());
+    assert!(
+        unmatched
+            .stdout
+            .contains("--command-override: no command check runs `bunx @scope/checker@0.4.0`"),
+        "{}",
+        unmatched.stdout
+    );
+    assert_ne!(malformed.code, 0, "{}", malformed.output());
+    assert!(
+        malformed.stderr.contains("is not FROM=>TO"),
+        "{}",
+        malformed.stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("Reqfile.yaml")).expect("Reqfile.yaml"),
+        reqfile_text,
+        "an override is never written to a Reqfile"
+    );
+}

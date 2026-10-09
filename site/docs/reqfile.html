@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="The Reqfile.yaml format: requirement types, fields, scope, and folder settings." />
+    <link rel="canonical" href="https://reqfile.dev/docs/reqfile" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>Reqfile.yaml — Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs">Getting started</a></li>
+          <li><a href="/docs/reqfile" aria-current="page">Reqfile.yaml</a>
+            <ul>
+              <li><a href="#example">Example</a></li>
+              <li><a href="#rules">Rules</a></li>
+              <li><a href="#fields">Fields</a></li>
+              <li><a href="#macro-and-micro">Macro and micro</a></li>
+              <li><a href="#scope">Scope</a></li>
+              <li><a href="#settings">Settings: .reqfile/config.yaml</a></li>
+              <li><a href="#requirement-files">A requirement's own files</a></li>
+            </ul></li>
+          <li><a href="/docs/checks">Checks</a></li>
+          <li><a href="/docs/packages">Packages</a></li>
+          <li><a href="/docs/evals">Evals</a></li>
+          <li><a href="/docs/cli">CLI</a></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>Reqfile.yaml</h1>
+        <p class="lead">Requirements live in Reqfile.yaml files next to the code they govern. The format is versioned and strictly validated: every error names its file and line.</p>
+        <section aria-labelledby="example">
+          <h2 id="example"><a href="#example">Example</a></h2>
+<div class="code"><span class="code-lang">Reqfile.yaml</span><pre><code># Requirements for this folder, checked by reqfile (https://reqfile.dev)
+reqfile: 1
+
+code:
+  - id: FAIL_FAST
+    ref: Shore, "Fail Fast"
+    must: No silent fallbacks, no swallowed errors, no default values that hide a failure.
+    why: A swallowed error is an invariant violation nobody sees.
+    who: Anyone debugging production.
+    checks:
+      - command:
+          run: ruff check --isolated --select E722,BLE001,S110 --output-format sarif
+          files: "**/*.py"
+          pass_files: true
+          format: sarif
+          fix_hint: Catch the specific expected error and handle it visibly, or let it propagate.
+      - decision
+
+  - id: DECOMPLECT
+    use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d   # v1.2.0</code></pre></div>
+        </section>
+        <section aria-labelledby="rules">
+          <h2 id="rules"><a href="#rules">Rules</a></h2>
+<ul>
+<li>The file is named exactly <code>Reqfile.yaml</code> and has a <code>reqfile: 1</code> version key.</li>
+<li>Requirements are listed under <code>product</code> (what users get), <code>code</code> (how the code is built) or <code>process</code> (how the project is run, such as its CI).</li>
+<li>A block with <code>use</code> is a use block, taking its requirement by reference (see <a href="/docs/packages">packages</a>); any other block is a definition.</li>
+<li>Unknown keys, missing fields and near-miss file names (<code>reqfile.yaml</code>, <code>Reqfile.yml</code>) are errors naming the file and line. A near-miss name is only an error when the file has a top-level <code>reqfile</code>, <code>product</code>, <code>code</code> or <code>process</code> key, so a CI workflow named <code>reqfile.yml</code> is fine.</li>
+</ul>
+        </section>
+        <section aria-labelledby="fields">
+          <h2 id="fields"><a href="#fields">Fields</a></h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>yes</td><td>SCREAMING_SNAKE_CASE; a definition id appears once in a repository</td></tr>
+<tr><td><code>must</code></td><td>yes</td><td>The promise, in one or two sentences</td></tr>
+<tr><td><code>why</code></td><td>yes</td><td>What breaks, and for whom, if it does not hold</td></tr>
+<tr><td><code>checks</code></td><td>yes</td><td>At least one <a href="/docs/checks#command-checks">command</a> or <a href="/docs/checks#decision-checks">decision</a> check</td></tr>
+<tr><td><code>who</code></td><td>no</td><td>Who relies on it</td></tr>
+<tr><td><code>ref</code></td><td>no</td><td>Where the principle comes from</td></tr>
+<tr><td><code>use</code></td><td>—</td><td>Makes the block a use block, taking a definition from elsewhere</td></tr>
+</tbody></table></div>
+        </section>
+        <section aria-labelledby="macro-and-micro">
+          <h2 id="macro-and-micro"><a href="#macro-and-micro">Macro and micro</a></h2>
+<p>A requirement is a macro: one durable promise, in one or two sentences, that would get a bug filed if it broke six months from now. Its details are micro: tests named after the sentence they prove, in the files its checks run. Implementation decisions, such as a chunk size or a library choice, stay in specs and pull requests.</p>
+<p>Keep each Reqfile to at most 10 product requirements; past that, merge requirements into broader promises, or split the folder into subfolders with their own Reqfiles.</p>
+        </section>
+        <section aria-labelledby="scope">
+          <h2 id="scope"><a href="#scope">Scope</a></h2>
+<p>Any folder can hold a <code>Reqfile.yaml</code>. For a file and an id, the block that applies is the one in the nearest Reqfile at or above the file's folder; blocks with that id in farther Reqfiles do not apply to it. A definition id appears once in a repository, and an id at most once in a Reqfile, so a nearer block with the same id is always a use block. Each code unit is judged at most once per id in a run.</p>
+<p>Target files come from git (tracked and untracked, never ignored), minus <code>.reqfile/</code> folders and the <code>exclude</code> globs of the configs above them. <code>reqfile explain &lt;path&gt;</code> shows which blocks apply to a path and where each comes from.</p>
+        </section>
+        <section aria-labelledby="settings">
+          <h2 id="settings"><a href="#settings">Settings: .reqfile/config.yaml</a></h2>
+<p>Any folder can hold a <code>.reqfile/config.yaml</code>, with or without a <code>Reqfile.yaml</code> next to it. Nothing is specific to the repository root: the settings of a folder come, key by key, from the nearest config in that folder or its ancestors, and each check uses the settings of its Reqfile's folder. Every key is optional, and most repositories need no config at all.</p>
+<div class="code"><span class="code-lang">.reqfile/config.yaml</span><pre><code>base: origin/main                      # default base of --changed (default: origin/HEAD)
+exclude: ["vendor/**", "tests/fixtures/**"]   # relative to this folder
+
+decision:                              # defaults shown
+  model: "~typesafe/jev-latest"        # the latest Jev on OpenRouter
+  api_key_env: OPENROUTER_API_KEY
+  endpoint: https://openrouter.ai/api/v1
+  concurrency: 16</code></pre></div>
+<p><code>exclude</code> globs add up down the tree, so a nested config cannot re-include what a parent excluded; a config inside an excluded folder is ignored. The <code>decision</code> keys are described under <a href="/docs/checks#jev-key">the Jev key</a>.</p>
+        </section>
+        <section aria-labelledby="requirement-files">
+          <h2 id="requirement-files"><a href="#requirement-files">A requirement's own files</a></h2>
+<p>Everything a requirement needs beyond its block lives in <code>.reqfile/&lt;ID&gt;/</code> next to its Reqfile: its scripts, its <code>decision.yaml</code>, and its labeled <code>examples/</code>. Commands reach that folder through <code>$REQFILE_ASSETS</code>.</p>
+<div class="code"><span class="code-lang">layout</span><pre><code>.reqfile/
+  config.yaml                 # settings for this folder and below (optional)
+  FAIL_FAST/
+    decision.yaml             # what a decision check asks
+    examples/                 # labeled cases, measured by reqfile eval
+      bare-except/
+        example.yaml
+        files/...</code></pre></div>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <a class="prev" href="/docs"><span>Previous</span>Getting started</a>
+          <a class="next" href="/docs/checks"><span>Next</span>Checks</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

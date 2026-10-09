@@ -19,6 +19,7 @@ use super::workspace::Workspace;
 use crate::core::command::{self, CommandViolation};
 use crate::core::config::{self, DecisionConfig};
 use crate::core::decision::{self, DecisionSpec, Unit, Verdict};
+use crate::core::overrides::{self, CommandOverride};
 use crate::core::paths;
 use crate::core::plan::{self, Candidate, CommandPlan};
 use crate::core::report::{CheckRun, Error, Finding, FindingKind, Report, RequirementRun, Setup};
@@ -38,6 +39,9 @@ pub struct Options {
     pub log_tags: Vec<String>,
     /// `--use LOCATION`, repeated: requirements to try for this run.
     pub uses: Vec<String>,
+    /// `--command-override FROM=>TO`, repeated: applied to the loaded
+    /// command checks for this run only.
+    pub command_overrides: Vec<CommandOverride>,
 }
 
 /// The lines of the run log, while the run goes.
@@ -74,7 +78,15 @@ struct DecisionJob<'w> {
 
 pub fn run(cwd: &Path, options: &Options) -> Report {
     match Workspace::load_trying(cwd, &options.uses, options.only.as_deref()) {
-        Ok(workspace) => run_in(&workspace, options),
+        Ok(workspace) if workspace.reqfiles.is_empty() && options.uses.is_empty() => {
+            Report::from_errors([super::workspace::no_reqfile(&workspace.root)])
+        }
+        Ok(mut workspace) => {
+            match overrides::apply(&mut workspace.blocks, &options.command_overrides) {
+                Ok(()) => run_in(&workspace, options),
+                Err(errors) => Report::from_errors(errors),
+            }
+        }
         Err(errors) => Report::from_errors(errors),
     }
 }
@@ -89,7 +101,7 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
         Ok(specs) => specs,
         Err(errors) => return Report::from_errors(errors),
     };
-    let changes = match changes(workspace, &selected, options) {
+    let (changes, notes) = match changes(workspace, &selected, options) {
         Ok(changes) => changes,
         Err(error) => return Report::from_errors([error]),
     };
@@ -107,6 +119,7 @@ pub fn run_in(workspace: &Workspace, options: &Options) -> Report {
     };
     let started = std::time::Instant::now();
     let mut report = Report {
+        notes,
         sources: workspace.sources.clone(),
         requirements: selected
             .iter()
@@ -565,17 +578,32 @@ enum Requirements {
     Unreadable,
 }
 
-/// With `--changed`, the changes since the base of each folder; a base is
+/// With `--changed`, the changes since the base of each folder, and notes
+/// saying which base was taken when it is not the obvious one; a base is
 /// resolved only for the selected blocks with a check that will run.
 fn changes(
     workspace: &Workspace,
     selected: &[usize],
     options: &Options,
-) -> Result<Option<Changes>, String> {
+) -> Result<(Option<Changes>, Vec<String>), String> {
     let Some(cli_base) = &options.changed else {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     };
-    let default_base = super::git::default_base(&workspace.root)?;
+    // Before the first commit every file is new: there is nothing to compare with.
+    if super::git::head(&workspace.root).is_none() {
+        return Ok((
+            None,
+            vec![
+                "--changed checks everything: there is no commit yet, so every file is new"
+                    .to_string(),
+            ],
+        ));
+    }
+    let (default_base, default_note) = match super::git::default_base(&workspace.root)? {
+        super::git::DefaultBase::Ref(base, note) => (Some(base), note),
+        super::git::DefaultBase::Unknown => (None, None),
+    };
+    let mut default_used = false;
     let runs = |check: &Check| match check {
         Check::Command(command) => !options.fast || command.fast,
         Check::Decision(_) => true,
@@ -592,7 +620,10 @@ fn changes(
         let base = cli_base
             .clone()
             .or_else(|| workspace.settings.base(&block.dir).map(String::from))
-            .or_else(|| default_base.clone())
+            .or_else(|| {
+                default_used = true;
+                default_base.clone()
+            })
             .ok_or_else(|| {
                 format!(
                     "--changed needs a base for {}: pass one (reqfile check --changed origin/main), set `base` in {}, or set origin/HEAD (git remote set-head origin --auto)",
@@ -633,7 +664,8 @@ fn changes(
         }
         changes.base_of.insert(index, base);
     }
-    Ok(Some(changes))
+    let notes = default_note.filter(|_| default_used).into_iter().collect();
+    Ok((Some(changes), notes))
 }
 
 /// The files block `index` may look at: its whole scope, or with

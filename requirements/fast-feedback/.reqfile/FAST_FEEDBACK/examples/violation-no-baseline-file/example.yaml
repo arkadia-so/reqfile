@@ -1,0 +1,3 @@
+expected: violation
+rationale: "The repository has pull-request jobs but declares no scenario or baseline at all."
+origin: authored

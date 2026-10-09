@@ -8,6 +8,7 @@ pub mod decision;
 pub mod error;
 pub mod examples;
 pub mod junit;
+pub mod overrides;
 pub mod paths;
 pub mod pins;
 pub mod plan;

@@ -1,0 +1,6 @@
+on: [push, pull_request]
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make links

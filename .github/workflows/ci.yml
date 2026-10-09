@@ -20,7 +20,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.98.1"
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
       # The public Reqfile has command checks only; tests use fake Jev, so
       # fork PRs need no API secrets. Release builders run the same script.
       - run: bash .github/check.sh

@@ -228,3 +228,20 @@ fn the_summary_counts_checks_without_matching_files() {
         run.stdout
     );
 }
+
+#[test]
+fn a_repository_without_reqfile_is_an_error_that_says_how_to_set_up() {
+    let repo = repo!();
+    repo.write("main.py", "print('hi')\n");
+    for command in ["check", "eval"] {
+        let run = repo.run(&[command]);
+        assert_eq!(run.code, 3, "{}", run.output());
+        let output = run.output();
+        assert!(
+            output.contains("no Reqfile.yaml in this repository"),
+            "{output}"
+        );
+        assert!(output.contains("https://reqfile.dev/SKILL.md"), "{output}");
+        assert!(output.contains("reqfile add"), "{output}");
+    }
+}

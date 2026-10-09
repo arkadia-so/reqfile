@@ -1,0 +1,28 @@
+{
+  "margin": 0.25,
+  "samples": 5,
+  "cap_seconds": 180,
+  "scenarios": [
+    {
+      "id": "pr-test",
+      "describe": "The test job of a pull request",
+      "workflow": "ci.yml",
+      "job": "test",
+      "event": "pull_request",
+      "baseline_seconds": 24
+    },
+    {
+      "id": "pr-lint",
+      "workflow": "ci.yml",
+      "job": "lint",
+      "event": "pull_request",
+      "baseline_seconds": 40
+    },
+    {
+      "id": "local-check",
+      "describe": "make check with nothing changed",
+      "command": "make check",
+      "baseline_seconds": 2
+    }
+  ]
+}

@@ -24,7 +24,8 @@ enum Command {
     /// Run the checks of every Reqfile.yaml in the repository.
     Check {
         /// Only check files changed since the merge-base of BASE and HEAD
-        /// (default: the nearest `base` in .reqfile/config.yaml, then origin/HEAD).
+        /// (default: the nearest `base` in .reqfile/config.yaml, then origin/HEAD,
+        /// origin/main or origin/master; without a remote, main, master or HEAD).
         #[arg(long, value_name = "BASE", num_args = 0..=1)]
         changed: Option<Option<String>>,
         /// Only run the listed requirements.
@@ -46,6 +47,10 @@ enum Command {
         /// Reqfile; repeatable, restricted by --only.
         #[arg(long = "use", value_name = "LOCATION")]
         uses: Vec<String>,
+        /// Replace FROM by TO in every command check's `run` for this run,
+        /// never in a Reqfile; repeatable. A FROM no command contains is an error.
+        #[arg(long = "command-override", value_name = "FROM=>TO", value_parser = core::overrides::parse)]
+        command_overrides: Vec<core::overrides::CommandOverride>,
         #[arg(long, value_enum, default_value_t = Format::Auto)]
         format: Format,
         /// Every finding, and what each check ran.
@@ -94,10 +99,16 @@ enum Command {
         /// adopting them, as `check --use` does.
         #[arg(long = "use", value_name = "LOCATION")]
         uses: Vec<String>,
+        /// Replace FROM by TO in every command check's `run` for this run, as
+        /// `check --command-override` does, such as to measure a package's
+        /// working copy rather than its published runner; repeatable.
+        #[arg(long = "command-override", value_name = "FROM=>TO", value_parser = core::overrides::parse)]
+        command_overrides: Vec<core::overrides::CommandOverride>,
         /// Run each example N times and report the cases whose outcome
         /// changes, the noise a change to the checks must exceed.
         #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..))]
         repeat: u16,
+        /// `json`: every requirement's counts per split and every case.
         #[arg(long, value_enum, default_value_t = Format::Auto)]
         format: Format,
         /// Every case that does not match its label.
@@ -198,6 +209,7 @@ fn main() -> ExitCode {
             log,
             log_tag,
             uses,
+            command_overrides,
             format,
             verbose,
             quiet,
@@ -211,6 +223,7 @@ fn main() -> ExitCode {
                     log,
                     log_tags: log_tag,
                     uses,
+                    command_overrides,
                 },
             );
             let text = match (format, pretty(format, verbose, quiet)) {
@@ -263,17 +276,25 @@ fn main() -> ExitCode {
         Command::Eval {
             only,
             uses,
+            command_overrides,
             repeat,
             format,
             verbose,
         } => {
-            if format == Format::Json {
-                eprintln!("error: reqfile eval has no JSON output");
-                return ExitCode::from(EXIT_ERROR as u8);
-            }
             let style = pretty(format, verbose, false);
-            match shell::examples::run(&cwd, only.as_deref(), &uses, repeat.into(), style.as_ref())
-            {
+            let output = match (format, &style) {
+                (Format::Json, _) => shell::examples::Output::Json,
+                (_, Some(style)) => shell::examples::Output::Pretty(style),
+                (_, None) => shell::examples::Output::Plain,
+            };
+            match shell::examples::run(
+                &cwd,
+                only.as_deref(),
+                &uses,
+                &command_overrides,
+                repeat.into(),
+                &output,
+            ) {
                 Ok((text, code)) => match emit(&text) {
                     Ok(()) => ExitCode::from(code as u8),
                     Err(()) => ExitCode::from(EXIT_ERROR as u8),

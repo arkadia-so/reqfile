@@ -1,0 +1,15 @@
+id: no-any-typescript
+language: typescript
+severity: error
+message: "`any` turns off type checking; use a precise type parsed at the boundary."
+rule:
+  kind: predefined_type
+  regex: '^any$'
+---
+id: no-any-tsx
+language: tsx
+severity: error
+message: "`any` turns off type checking; use a precise type parsed at the boundary."
+rule:
+  kind: predefined_type
+  regex: '^any$'

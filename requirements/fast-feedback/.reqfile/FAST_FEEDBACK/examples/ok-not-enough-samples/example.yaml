@@ -1,0 +1,3 @@
+expected: ok
+rationale: "A rare scenario had too few runs in the history window to be measured: it is reported as not measured, never as a regression."
+origin: authored

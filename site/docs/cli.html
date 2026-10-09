@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="reqfile check, eval, list, explain, add, update and example add: options, formats and exit codes." />
+    <link rel="canonical" href="https://reqfile.dev/docs/cli" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/docs.css" />
+    <title>CLI — Reqfile docs</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="/" aria-label="Reqfile home"
+        ><span class="mark" aria-hidden="true">r<span>✓</span></span
+        >reqfile</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/#how-it-works">How it works</a>
+        <a href="/docs" aria-current="page">Docs</a>
+        <a
+          class="github"
+          href="https://github.com/arkadia-so/reqfile"
+          aria-label="Reqfile on GitHub"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.08c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.62 1.23 3.26.94.1-.73.4-1.23.71-1.51-2.5-.28-5.12-1.25-5.12-5.54 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.96.73.78 1.16 1.78 1.16 3.01 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.06c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+        ></a>
+      </nav>
+    </header>
+
+    <div class="docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <p class="overline">DOCUMENTATION</p>
+        <ul>
+          <li><a href="/docs">Getting started</a></li>
+          <li><a href="/docs/reqfile">Reqfile.yaml</a></li>
+          <li><a href="/docs/checks">Checks</a></li>
+          <li><a href="/docs/packages">Packages</a></li>
+          <li><a href="/docs/evals">Evals</a></li>
+          <li><a href="/docs/cli" aria-current="page">CLI</a>
+            <ul>
+              <li><a href="#commands">Commands</a></li>
+              <li><a href="#check">reqfile check</a></li>
+              <li><a href="#output">Output</a></li>
+              <li><a href="#other-commands">Other commands</a></li>
+              <li><a href="#exit-codes">Exit codes</a></li>
+            </ul></li>
+        </ul>
+      </nav>
+      <main id="main" class="docs-main">
+        <p class="overline">REQFILE DOCS</p>
+        <h1>CLI</h1>
+        <p class="lead">Every command, its options, its output formats and its exit codes.</p>
+        <section aria-labelledby="commands">
+          <h2 id="commands"><a href="#commands">Commands</a></h2>
+<div class="code"><span class="code-lang">usage</span><pre><code>reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]... [-v|-q]
+              [--command-override 'FROM=&gt;TO']... [--format auto|pretty|plain|json]
+              [--log FILE [--log-tag KEY=VALUE]...]
+reqfile eval [--only ID,...] [--use LOCATION]... [--command-override 'FROM=&gt;TO']...
+             [--repeat N] [-v] [--format auto|pretty|plain|json]
+reqfile example add &lt;ID&gt; &lt;NAME&gt; --expected violation|ok [--finding FILE]... [--rationale TEXT] [--holdout] &lt;FILE&gt;...
+reqfile explain &lt;PATH&gt;
+reqfile list [--kind product|code|process] [--format summary|json]
+reqfile add &lt;LOCATION&gt; [ID]... [--dry-run]
+reqfile update [--dry-run]</code></pre></div>
+        </section>
+        <section aria-labelledby="check">
+          <h2 id="check"><a href="#check">reqfile check</a></h2>
+<ul>
+<li><code>--changed [BASE]</code> checks everything a change since the merge-base of BASE and HEAD can affect: the changed files (committed, uncommitted, untracked and deleted), and every file whose applicable block is not the same as at the merge-base, because another block now applies to it or because its requirement, its <code>$REQFILE_ASSETS</code> files, its settings or the commit of its source changed. Commands without <code>files</code> still run. BASE defaults to the nearest <code>base</code> in <code>.reqfile/config.yaml</code>, else <code>origin/HEAD</code>; without it, <code>origin/main</code> or <code>origin/master</code>. In a repository without a remote, it is the local <code>main</code> or <code>master</code>, else the last commit, and before the first commit everything is checked. A base other than <code>origin/HEAD</code> is named in a <code>note</code> line.</li>
+<li><code>--fast</code> runs only decision checks and the commands declared <code>fast: true</code>, for edit hooks; the summary counts the checks left for a full run. Without it, every check runs, so a CI running <code>reqfile check</code> never skips checks.</li>
+<li><code>--only</code> runs only the listed requirements.</li>
+<li><code>--use LOCATION</code> adds the requirements of a location for this run (see <a href="/docs/packages#try">packages</a>).</li>
+<li><code>--command-override 'FROM=&gt;TO'</code> replaces FROM by TO in the <code>run</code> of every command check, for this run only, never in a Reqfile; repeatable. A FROM no command contains is an error.</li>
+<li><code>--log FILE</code> appends one JSON line per judged code unit (clean ones included), command check and command finding: run id, git HEAD, requirement, location, the unit's source and fingerprint, the question's fingerprint, probability, verdict, exact model and whether the answer was cached, plus any <code>--log-tag KEY=VALUE</code>. It feeds evaluation and replay without changing results.</li>
+</ul>
+        </section>
+        <section aria-labelledby="output">
+          <h2 id="output"><a href="#output">Output</a></h2>
+<ul>
+<li>In a terminal, <code>auto</code> (the default) draws a table of requirements, then the details of what does not pass, grouped by requirement with each fix hint once, and a summary line, in color unless <code>NO_COLOR</code> is set. <code>-v</code> shows every finding and what each check ran, <code>-q</code> only what fails the run.</li>
+<li>Anywhere else, such as in a hook, a pipe or CI, it is <code>plain</code>: one finding per line, stable for agents and scripts (<code>summary</code> is still accepted).</li>
+<li><code>json</code> is the same content as data, including each finding's <code>conflicts</code>.</li>
+<li>Before anything runs, a missing Jev key is said once, first (<code>setup</code> in the plain output, a banner in the pretty one, <code>setup</code> in JSON), naming the variable and the requirements whose decision checks will not judge code.</li>
+</ul>
+<p>The summary counts checks run, checks with nothing to check, and code units judged, so a run that looked at nothing shows.</p>
+        </section>
+        <section aria-labelledby="other-commands">
+          <h2 id="other-commands"><a href="#other-commands">Other commands</a></h2>
+<ul>
+<li><code>list</code> lists every requirement of the repository with its type, the types of its checks and, for a use block, its source; <code>--format json</code> gives the same as data.</li>
+<li><code>explain &lt;path&gt;</code> lists the requirements that apply to a path: for each, the block that applies, and for a use block its resolved definition and whether its checks are inherited or set in the block.</li>
+<li><code>eval</code> measures each requirement's checks on its labeled examples, each case <code>--repeat N</code> times; <code>--format json</code> gives the counts per split and every case as data (see <a href="/docs/evals">evals</a>).</li>
+<li><code>example add</code> turns files of the repository into a labeled example.</li>
+<li><code>add</code> writes use blocks pinned to a commit, <code>update</code> moves the pins (see <a href="/docs/packages#add-and-update">packages</a>).</li>
+</ul>
+        </section>
+        <section aria-labelledby="exit-codes">
+          <h2 id="exit-codes"><a href="#exit-codes">Exit codes</a></h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Exit</th><th>Meaning</th><th>Response</th></tr></thead>
+<tbody>
+<tr><td><code>0</code></td><td>Every blocking check ran and found no blocking violation</td><td>Inspect coverage, deferred checks and advisory findings</td></tr>
+<tr><td><code>1</code></td><td>Blocking violations (for <code>eval</code>: an asserted requirement failing a label)</td><td>Fix and rerun</td></tr>
+<tr><td><code>3</code></td><td>A configuration error, a blocking check that could not run, or no <code>Reqfile.yaml</code> in the repository</td><td>Fix the execution problem; this is not a passing check</td></tr>
+</tbody></table></div>
+<p>3 takes precedence over 1. An advisory check that cannot run, such as a decision check without an API key in a pull request from a fork, is reported as an advisory error without changing the exit code: it could never have blocked. Exit 0 means the checks passed, not that the requirements hold: checks approximate requirements.</p>
+        </section>
+        <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
+        <nav class="docs-pager" aria-label="Previous and next pages">
+          <a class="prev" href="/docs/evals"><span>Previous</span>Evals</a>
+        </nav>
+      </main>
+    </div>
+    <footer>
+      <a class="wordmark" href="/"
+        >reqfile<span class="footer-check" aria-hidden="true">✓</span></a
+      >
+      <p>Requirements for agents. Clarity for everyone.</p>
+      <div>
+        <a href="/docs">Docs</a><a href="/SKILL.md">Agent skill</a
+        ><a href="https://github.com/arkadia-so/reqfile">GitHub ↗</a
+        ><a href="https://github.com/arkadia-so/reqfile#license"
+          >MIT / Apache-2.0</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

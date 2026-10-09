@@ -1,0 +1,92 @@
+# Decoded external data used or asserted as a type without being parsed by a
+# schema: fields read straight from JSON.parse, json.loads or response.json(),
+# type assertions and casts of them, and double assertions through unknown.
+# Tests only inspect data, they are not where it enters, so they are ignored.
+id: unparsed-typescript
+language: typescript
+severity: error
+ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+message: Decoded data is used as a type without being parsed; parse it with a schema (Zod) first.
+rule:
+  any:
+    - pattern: $X as unknown as $T
+    - kind: call_expression
+      regex: '^JSON\.parse\(|\.json\(\s*\)$'
+      # data handed on to a schema, such as User.parse(JSON.parse(s).user), is parsed
+      not: { inside: { stopBy: end, kind: arguments, inside: { kind: call_expression, has: { field: function, regex: '\.(parse|safeParse|parseAsync|safeParseAsync)$' } } } }
+      any:
+        - inside: { kind: member_expression, field: object }
+        - inside: { kind: subscript_expression, field: object }
+        - inside: { kind: as_expression, not: { regex: 'as\s+(unknown|const)$' } }
+        - inside:
+            kind: await_expression
+            any:
+              - inside: { kind: member_expression, field: object }
+              - inside: { kind: subscript_expression, field: object }
+              - inside: { kind: as_expression, not: { regex: 'as\s+(unknown|const)$' } }
+        - inside:
+            kind: await_expression
+            inside:
+              kind: parenthesized_expression
+              any:
+                - inside: { kind: member_expression, field: object }
+                - inside: { kind: subscript_expression, field: object }
+---
+id: unparsed-tsx
+language: tsx
+severity: error
+ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+message: Decoded data is used as a type without being parsed; parse it with a schema (Zod) first.
+rule:
+  any:
+    - pattern: $X as unknown as $T
+    - kind: call_expression
+      regex: '^JSON\.parse\(|\.json\(\s*\)$'
+      # data handed on to a schema, such as User.parse(JSON.parse(s).user), is parsed
+      not: { inside: { stopBy: end, kind: arguments, inside: { kind: call_expression, has: { field: function, regex: '\.(parse|safeParse|parseAsync|safeParseAsync)$' } } } }
+      any:
+        - inside: { kind: member_expression, field: object }
+        - inside: { kind: subscript_expression, field: object }
+        - inside: { kind: as_expression, not: { regex: 'as\s+(unknown|const)$' } }
+        - inside:
+            kind: await_expression
+            any:
+              - inside: { kind: member_expression, field: object }
+              - inside: { kind: subscript_expression, field: object }
+              - inside: { kind: as_expression, not: { regex: 'as\s+(unknown|const)$' } }
+        - inside:
+            kind: await_expression
+            inside:
+              kind: parenthesized_expression
+              any:
+                - inside: { kind: member_expression, field: object }
+                - inside: { kind: subscript_expression, field: object }
+---
+id: unparsed-python
+language: python
+severity: error
+ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+message: Decoded data is used as a type without being parsed; parse it with a schema (Pydantic) first.
+rule:
+  kind: call
+  has: { field: function, regex: '^json\.loads?$|\.json$' }
+  # data handed on to a schema, such as User.model_validate(json.loads(s)["user"]), is parsed
+  not: { inside: { stopBy: end, kind: argument_list, inside: { kind: call, has: { field: function, regex: '\.(model_validate|parse_obj|validate_python)$' } } } }
+  any:
+    - inside: { kind: subscript, field: value }
+    - inside: { kind: attribute, field: object }
+    - inside:
+        kind: argument_list
+        inside: { kind: call, has: { field: function, regex: '^(typing\.)?cast$' } }
+---
+id: unparsed-rust
+language: rust
+severity: error
+ignores: ["**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+message: The boundary returns an untyped JSON value; deserialize into a precise type with serde instead.
+rule:
+  kind: function_item
+  has:
+    field: return_type
+    regex: '^([\w:]*(Result|Option)<)?\s*(serde_json::)?Value\b'
+  regex: 'serde_json::from_(str|slice|reader)|\.json\s*(::<[^>]*>)?\s*\('

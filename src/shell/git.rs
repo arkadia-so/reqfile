@@ -33,7 +33,12 @@ fn paths(output: Vec<u8>) -> Vec<String> {
 
 pub fn root(cwd: &Path) -> Result<PathBuf, String> {
     let output = git(cwd, &["rev-parse", "--show-toplevel"])
-        .map_err(|_| "not inside a git repository".to_string())?;
+        .map_err(|_| {
+            format!(
+                "not inside a git repository ({}).\n\nreqfile reads the Reqfile.yaml files of a git repository and checks the files git lists there. Run it from inside the repository, or create one with `git init`.",
+                cwd.display()
+            )
+        })?;
     let root = PathBuf::from(String::from_utf8_lossy(&output).trim());
     root.canonicalize()
         .map_err(|e| format!("cannot resolve the repository root {}: {e}", root.display()))
@@ -75,9 +80,82 @@ pub fn changed(root: &Path, merge_base: &str) -> Result<Vec<String>, String> {
     Ok(changed)
 }
 
-/// The remote's default branch (origin/HEAD, such as `origin/main`), or
-/// `None` when the remote has none; any other git failure is an error.
-pub fn default_base(root: &Path) -> Result<Option<String>, String> {
+/// What `--changed` compares with when no base is given or configured.
+pub enum DefaultBase {
+    /// A ref, with a note saying what it is when it is not origin/HEAD.
+    Ref(String, Option<String>),
+    /// The repository has remotes but no default branch reqfile can find.
+    Unknown,
+}
+
+/// The remote's default branch (origin/HEAD, such as `origin/main`). Without
+/// it, `origin/main` or `origin/master`; in a repository without any remote,
+/// the local `main` or `master`, else the last commit. Any git failure other
+/// than a missing ref is an error.
+pub fn default_base(root: &Path) -> Result<DefaultBase, String> {
+    if let Some(base) = origin_head(root)? {
+        return Ok(DefaultBase::Ref(base, None));
+    }
+    let has_remote = !git(root, &["remote"])?.is_empty();
+    let candidates: &[&str] = if has_remote {
+        &["origin/main", "origin/master"]
+    } else {
+        &["main", "master"]
+    };
+    let mut existing = None;
+    for name in candidates {
+        if commit_exists(root, name)? {
+            existing = Some(*name);
+            break;
+        }
+    }
+    Ok(fallback_base(has_remote, existing))
+}
+
+/// The base to take without origin/HEAD, given whether the repository has a
+/// remote and the first candidate branch that exists.
+fn fallback_base(has_remote: bool, existing: Option<&str>) -> DefaultBase {
+    match (existing, has_remote) {
+        (Some(name), true) => DefaultBase::Ref(
+            name.to_string(),
+            Some(format!(
+                "--changed compares with {name}: origin/HEAD is not set (git remote set-head origin --auto sets it)"
+            )),
+        ),
+        (Some(name), false) => DefaultBase::Ref(
+            name.to_string(),
+            Some(format!(
+                "--changed compares with {name}: this repository has no remote"
+            )),
+        ),
+        (None, true) => DefaultBase::Unknown,
+        (None, false) => DefaultBase::Ref(
+            "HEAD".to_string(),
+            Some(
+                "--changed compares with HEAD, the last commit: this repository has no remote and no main or master branch"
+                    .to_string(),
+            ),
+        ),
+    }
+}
+
+/// Whether `name` resolves to a commit.
+fn commit_exists(root: &Path, name: &str) -> Result<bool, String> {
+    Command::new("git")
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{name}^{{commit}}"),
+        ])
+        .current_dir(root)
+        .output()
+        .map(|o| o.status.success())
+        .map_err(|e| format!("could not run git: {e}"))
+}
+
+/// origin/HEAD, or `None` when the remote has no default branch set.
+fn origin_head(root: &Path) -> Result<Option<String>, String> {
     let output = Command::new("git")
         .args([
             "symbolic-ref",

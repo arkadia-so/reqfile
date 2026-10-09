@@ -1,0 +1,3 @@
+expected: violation
+rationale: "The median of 190 s is within the margin of its baseline of 170 s, but over the cap of 180 s, and the scenario is not marked over_cap."
+origin: authored

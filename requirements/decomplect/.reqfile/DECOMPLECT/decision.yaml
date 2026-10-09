@@ -1,0 +1,25 @@
+# Decision check for DECOMPLECT, asked to Jev about each unit (https://reqfile.dev)
+units:                      # functions of 2 lines or more, outside tests
+  - language: rust
+    rule:
+      kind: function_item
+      regex: '\n'
+      not:
+        any:
+          - follows: { kind: attribute_item, regex: '^#\[(\w+::)*test\b' }
+          - inside: { kind: mod_item, regex: '^mod tests\b', stopBy: end }
+    ignores: ["**/tests/**", "**/benches/**"]
+  - language: python
+    rule: { kind: function_definition, regex: '\n' }
+    ignores: ["**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+  - language: typescript
+    rule: { any: [{ kind: function_declaration }, { kind: method_definition }, { kind: arrow_function, inside: { kind: variable_declarator } }], regex: '\n' }
+    ignores: ["**/*.test.ts", "**/*.spec.ts", "**/tests/**", "**/__tests__/**"]
+  - language: tsx
+    rule: { any: [{ kind: function_declaration }, { kind: method_definition }, { kind: arrow_function, inside: { kind: variable_declarator } }], regex: '\n' }
+    ignores: ["**/*.test.tsx", "**/*.spec.tsx", "**/tests/**", "**/__tests__/**"]
+question: Does this function itself implement two or more concerns that change independently, such as I/O together with business rules, or parsing together with computation?
+violation_when: The function's own body does the work of two concerns, for example it reads or writes files, network or databases and also computes a business result (a price, a total, a decision) in its own expressions, or it decodes, splits or converts raw input and also aggregates, computes, formats or acts on the result. One line of computation placed among I/O calls is enough.
+ok_when: The function does one job, or it is a coordinator with no computation of its own, where every statement only calls another function (such as read, price, save) and passes the results along, even when some of those calls perform I/O. Judge only the function's own statements, since a call to a function that implements a whole concern (such as read_items, price or save) delegates it whatever that function does, while string splitting, number conversion and arithmetic written in the body are the function's own work. Converting and checking a single input value is one job, and so is parsing raw text into values without also aggregating or formatting them, or reading input and handing it straight to a parsing library.
+fix_hint: Split the function so each concern lives in its own function, keeping I/O at the edges.
+thresholds: { violation_above: 0.75, pass_below: 0.7 }   # measured on 33 units two blind reviewers agreed on

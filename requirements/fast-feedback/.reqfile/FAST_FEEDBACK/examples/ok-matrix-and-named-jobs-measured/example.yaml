@@ -1,0 +1,3 @@
+expected: ok
+rationale: "A pull_request_target workflow with a matrix job and a named job; scenarios refer to jobs by id, whatever their display names."
+origin: authored

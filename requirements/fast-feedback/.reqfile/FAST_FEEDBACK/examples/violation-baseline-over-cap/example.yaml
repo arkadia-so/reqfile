@@ -1,0 +1,3 @@
+expected: violation
+rationale: "A scenario's baseline is 240 s, over the cap of 180 s, and is not marked over_cap: a loop that slow must be named as debt with its fix."
+origin: authored

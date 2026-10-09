@@ -1,0 +1,19 @@
+{
+  "margin": 0.25,
+  "samples": 5,
+  "cap_seconds": 180,
+  "scenarios": [
+    {
+      "id": "pr-test",
+      "workflow": "ci.yml",
+      "job": "test",
+      "todo": "ACME-14: set the baseline once 10 runs of the new test cache exist"
+    },
+    {
+      "id": "pr-lint",
+      "workflow": "ci.yml",
+      "job": "lint",
+      "baseline_seconds": 40
+    }
+  ]
+}

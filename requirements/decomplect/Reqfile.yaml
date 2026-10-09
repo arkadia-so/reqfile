@@ -1,0 +1,13 @@
+# DECOMPLECT, a reqfile requirement package (https://reqfile.dev)
+# ALPHA: written with an agent and not yet reviewed or measured by hand.
+# Its checks and examples may be wrong; do not adopt it yet. See README.md.
+reqfile: 1
+
+code:
+  - id: DECOMPLECT
+    ref: Hickey, "Simple Made Easy"
+    must: A unit (function, module or type) does not braid concerns that change independently, such as I/O with business rules or parsing with computation; a coordinator may connect operations that each live in their own unit.
+    why: Braided concerns make every change touch unrelated logic and are the main source of agent-introduced bugs.
+    who: Every future agent or human modifying the code.
+    checks:
+      - decision

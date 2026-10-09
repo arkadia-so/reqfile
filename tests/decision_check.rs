@@ -1072,3 +1072,21 @@ fn pruning_the_shared_cache_changes_cost_but_never_results() {
     );
     std::fs::remove_dir_all(&other).expect("remove the other worktree");
 }
+
+#[test]
+fn a_missing_api_key_names_both_ways_to_reach_jev() {
+    let repo = repo!();
+    repo.write("Reqfile.yaml", &reqfile(&[("DECOMPLECT", "- decision")]));
+    repo.write(".reqfile/DECOMPLECT/decision.yaml", PYTHON_FUNCTIONS);
+    repo.write("a.py", "def f():\n    pass\n");
+
+    let run = repo.run(&["check"]);
+
+    assert_eq!(run.code, 0, "{}", run.output());
+    assert!(
+        run.stdout.contains("OPENROUTER_API_KEY is not set")
+            && run.stdout.contains("TYPESAFE_API_KEY"),
+        "{}",
+        run.stdout
+    );
+}

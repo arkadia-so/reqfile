@@ -11,20 +11,35 @@ use super::check;
 use super::workspace::Workspace;
 use crate::core::config::Settings;
 use crate::core::examples::{self, Case, EXAMPLE_FILE, Evidence, FILES_DIR, Outcome, Tested};
+use crate::core::overrides::{self, CommandOverride};
+use crate::core::pretty::Style;
 use crate::core::report::Report;
 use crate::core::reqfile::Check;
 use crate::core::resolve::{self, Assets, Effective};
 
+/// How `reqfile eval` reports.
+pub enum Output<'s> {
+    Plain,
+    Pretty(&'s Style),
+    Json,
+}
+
 /// The report and exit code of `reqfile eval`, each case run `runs` times,
-/// or the errors that prevent it.
+/// its command checks changed by `command_overrides`, or the errors that
+/// prevent it.
 pub fn run(
     cwd: &Path,
     only: Option<&[String]>,
     uses: &[String],
+    command_overrides: &[CommandOverride],
     runs: usize,
-    style: Option<&crate::core::pretty::Style>,
+    output: &Output,
 ) -> Result<(String, i32), Vec<String>> {
-    let workspace = Workspace::load_trying(cwd, uses, only)?;
+    let mut workspace = Workspace::load_trying(cwd, uses, only)?;
+    if workspace.reqfiles.is_empty() && uses.is_empty() {
+        return Err(vec![super::workspace::no_reqfile(&workspace.root)]);
+    }
+    overrides::apply(&mut workspace.blocks, command_overrides)?;
     if let Some(ids) = only {
         let unknown: Vec<String> = ids
             .iter()
@@ -52,25 +67,31 @@ pub fn run(
             for (name, case) in sorted_dirs(&examples)? {
                 let example = read_example(&workspace, &case)?;
                 let mut outcomes = Vec::new();
+                let mut flagged = Vec::new();
                 for _ in 0..runs {
-                    outcomes.push(match run_case(&workspace, block, &case.join(FILES_DIR)) {
+                    match run_case(&workspace, block, &case.join(FILES_DIR)) {
                         Ok(report) => {
                             probabilistic |= report.findings.iter().any(|f| {
                                 f.requirement == block.id
                                     && f.probability.is_some()
                                     && f.model.is_none()
                             });
-                            examples::outcome(&example, &block.id, &report)
+                            outcomes.push(examples::outcome(&example, &block.id, &report));
+                            flagged.push(examples::flagged(&block.id, &report));
                         }
-                        Err(e) => Outcome::Error(e),
-                    });
+                        Err(e) => {
+                            outcomes.push(Outcome::Error(e));
+                            flagged.push(Vec::new());
+                        }
+                    }
                 }
                 cases.push(Case {
                     name,
                     label: example.expected,
                     known: example.known,
-                    holdout: example.holdout,
+                    split: example.split,
                     outcomes,
+                    flagged,
                 });
             }
         }
@@ -83,6 +104,8 @@ pub fn run(
         };
         let shared = blocks.iter().filter(|b| b.id == block.id).count() > 1;
         tested.push(Tested {
+            id: block.id.clone(),
+            reqfile: block.reqfile.clone(),
             label: if shared {
                 format!("{} ({})", block.id, block.reqfile)
             } else {
@@ -92,9 +115,10 @@ pub fn run(
             cases,
         });
     }
-    Ok(match style {
-        Some(style) => examples::render_pretty(&tested, runs, style),
-        None => examples::render(&tested, runs),
+    Ok(match output {
+        Output::Pretty(style) => examples::render_pretty(&tested, runs, style),
+        Output::Plain => examples::render(&tested, runs),
+        Output::Json => examples::render_json(&tested, runs),
     })
 }
 
@@ -174,6 +198,7 @@ fn run_case(workspace: &Workspace, block: &Effective, case: &Path) -> Result<Rep
         log: None,
         log_tags: Vec::new(),
         uses: Vec::new(),
+        command_overrides: Vec::new(),
     };
     Ok(check::run_in(&case_workspace, &options))
 }

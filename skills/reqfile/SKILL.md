@@ -20,19 +20,20 @@ This skill: https://reqfile.dev/SKILL.md
    tool versions, package scripts and CI. Preserve existing requirements and
    configuration. Use an existing `reqfile` installation if available.
 2. Install the CLI through the project's tool manager. With mise, add
-   `"github:arkadia-so/reqfile" = "0.4.0"` to its existing `[tools]` table and
+   `"github:arkadia-so/reqfile" = "0.5.0"` to its existing `[tools]` table and
    run `mise install`. macOS and Linux prebuilt binaries are also available:
 
    ```sh
    installer_dir=$(mktemp -d) &&
-     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.4.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
+     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.5.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
      sh "$installer_dir/install.sh"
    reqfile --version
    ```
 
-   Alternatively use `cargo install reqfile --version 0.4.0 --locked` with
+   Alternatively use `cargo install reqfile --version 0.5.0 --locked` with
    Rust 1.90 or later. Reqfile also needs Git, a shell, and the tools invoked
-   by this repository's checks. Respect an existing version pin.
+   by this repository's checks. Respect an existing version pin. Windows is
+   not supported: on Windows, stop and tell the user.
 3. If there are no requirements, derive a small initial set from the user's
    stated constraints and checks the project already runs. Give each a precise
    `must`, its `why`, and a working check with an actionable `fix_hint`.
@@ -81,9 +82,11 @@ wins) and fix the other findings. Preserve the requirement's intended behavior w
 `--fast` defers command checks unless they declare `fast: true`; it still runs
 decision checks and can call the model. A full `reqfile check` runs every check.
 
-`--changed` defaults to `origin/HEAD`. If that ref is absent, use the project's
-actual base explicitly, for example `reqfile check --changed origin/main`, or
-set `base: origin/main` in `.reqfile/config.yaml`. It includes uncommitted and
+`--changed` defaults to `origin/HEAD`, then `origin/main` or `origin/master`;
+in a repository without a remote, to the local `main` or `master`, else the
+last commit, and a `note` line says which base it took. If that is not the
+project's base, pass it (`reqfile check --changed origin/develop`) or set
+`base:` in `.reqfile/config.yaml`. It includes uncommitted and
 untracked files. Commands without a `files` filter still run. Files whose
 requirement changed (its block, checks, `.reqfile/<ID>/` files, settings or
 source commit) are checked too, even when unchanged themselves.
@@ -171,9 +174,10 @@ That file defines ast-grep `units`, the `question`, `violation_when`, `ok_when`,
 example as the format reference; a prose question alone is not a valid check.
 
 Decision checks are advisory by default. They require a supported Jev endpoint
-and a credential, normally `OPENROUTER_API_KEY`. Model, endpoint and credential
-environment-variable name are configured under `decision` in
-`.reqfile/config.yaml`. Keep credentials in the project's secret mechanism.
+and a credential: `OPENROUTER_API_KEY` (from openrouter.ai) or
+`TYPESAFE_API_KEY` (from console.typesafe.ai, used when the first is unset).
+Model, endpoint and credential environment-variable name are configured under
+`decision` in `.reqfile/config.yaml`. Keep credentials in the project's secret mechanism.
 Selected source and context are sent to the configured provider: use judgment
 checks only when that is appropriate for the repository and user's request.
 Mechanical checks can be adopted without a model credential.
@@ -245,7 +249,10 @@ To improve a measured check without fitting its examples:
 3. When a case fails, first reread its label against the `must`, above all
    when the check was confident; fix a wrong label rather than the check.
    Choose `thresholds` on tuning examples and confirm them on held-out ones.
-4. Make one change per round, aimed at the cause, and rerun. Revert a change
+4. Make one change per round, aimed at the cause, and rerun; `reqfile eval
+   --format json` gives every case's outcome to compare runs, and
+   `--command-override 'FROM=>TO'` measures a package's working copy instead
+   of its published runner. Revert a change
    that raises the tuning rates but not the held-out ones. Never copy an
    example's text, names or identifiers into a command, question or threshold.
 5. Stop when the rates plateau, and report the held-out rates.

@@ -191,6 +191,7 @@ impl Repo {
             .args(args)
             .current_dir(self.path().join(dir))
             .env_remove("OPENROUTER_API_KEY")
+            .env_remove("TYPESAFE_API_KEY")
             .env("REQFILE_CACHE", self.cache.path())
             .envs(git_env())
             .envs(self.env.lock().expect("env lock").iter().cloned())

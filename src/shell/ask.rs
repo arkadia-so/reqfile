@@ -130,8 +130,9 @@ pub(super) fn connect(config: &DecisionConfig) -> Result<jev::Client, String> {
     match std::env::var(&config.api_key_env) {
         Ok(key) if !key.is_empty() => Ok(jev::Client::new(&config.endpoint, key)),
         _ => Err(format!(
-            "{} is not set; decision checks call Jev with it",
-            config.api_key_env
+            "{} is not set; decision checks call Jev with it{}",
+            config.api_key_env,
+            crate::core::config::other_key(&config.api_key_env)
         )),
     }
 }

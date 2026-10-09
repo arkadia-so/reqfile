@@ -1,0 +1,36 @@
+# Implementation inheritance, except from bases a framework requires.
+id: no-inheritance-typescript
+language: typescript
+severity: error
+message: This class inherits an implementation; compose through an interface instead.
+rule:
+  kind: extends_clause
+  inside: { kind: class_heritage }
+  not:
+    has:
+      field: value
+      regex: '^(\w+\.)*(Error|\w+Error|Exception|\w+Exception)$'
+---
+id: no-inheritance-tsx
+language: tsx
+severity: error
+message: This class inherits an implementation; compose through an interface instead.
+rule:
+  kind: extends_clause
+  inside: { kind: class_heritage }
+  not:
+    has:
+      field: value
+      regex: '^(\w+\.)*(Error|\w+Error|Exception|\w+Exception)$'
+---
+id: no-inheritance-python
+language: python
+severity: error
+message: This class inherits an implementation; compose through an interface instead.
+rule:
+  any: [{ kind: identifier }, { kind: attribute }, { kind: subscript }]
+  inside:
+    kind: argument_list
+    inside: { kind: class_definition, field: superclasses }
+  not:
+    regex: '^(\w+\.)*(BaseModel|BaseSettings|DeclarativeBase|Base|BaseHTTPRequestHandler|TestCase|IsolatedAsyncioTestCase|Exception|\w+Error|\w+Exception|Protocol|TypedDict|NamedTuple|Enum|IntEnum|StrEnum|Flag|IntFlag|ABC|Generic(\[.*\])?|Protocol\[.*\])$'

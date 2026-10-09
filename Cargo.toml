@@ -1,15 +1,16 @@
 [package]
 name = "reqfile"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.90"
+authors = ["Arkadia <contact@arkadia.so>"]
 description = "Check that a codebase meets its requirements"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/arkadia-so/reqfile"
 homepage = "https://reqfile.dev"
 keywords = ["requirements", "lint", "ci", "agents"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["tests/", ".github/", "site/", "dist-workspace.toml", "EXPORT.toml"]
+exclude = ["tests/", "requirements/", ".github/", "site/", "dist-workspace.toml", "EXPORT.toml"]
 
 [workspace]
 members = [".", "tests/support"]

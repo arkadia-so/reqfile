@@ -36,7 +36,7 @@ With [mise](https://mise.jdx.dev), from the prebuilt binaries (macOS and Linux):
 ```toml
 # mise.toml
 [tools]
-"github:arkadia-so/reqfile" = "0.4"
+"github:arkadia-so/reqfile" = "0.5"
 ```
 
 Or with the install script, `cargo binstall reqfile`, or from source with
@@ -46,8 +46,9 @@ Or with the install script, `cargo binstall reqfile`, or from source with
 curl -LsSf https://github.com/arkadia-so/reqfile/releases/latest/download/reqfile-installer.sh | sh
 ```
 
-reqfile needs `git`, `sh`, `tar` (for requirements taken from other
-repositories), and the tools your Reqfiles' commands call.
+reqfile runs on macOS and Linux; Windows is not supported. It needs `git`,
+`sh`, `tar` (for requirements taken from other repositories), and the tools
+your Reqfiles' commands call.
 
 ## Security
 
@@ -83,7 +84,7 @@ code:
           fix_hint: Catch the specific expected error and handle it visibly, or let it propagate.
       - decision
 
-  - { id: DECOMPLECT, use: acme/reqs@v1.2.0 }
+  - { id: DECOMPLECT, use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d }  # v1.2.0
 ```
 
 - The file is named exactly `Reqfile.yaml` and has a `reqfile: 1` version key.
@@ -224,6 +225,27 @@ so its thresholds stay tied to the version they were measured with. Label a few
 dozen units of your codebase and adjust the thresholds before making a check
 blocking.
 
+#### A key for Jev
+
+Decision checks call Jev, the model [TypeSafe](https://typesafe.ai) makes, with
+one of two keys, read from the environment:
+
+| Variable | Where to get it | Endpoint and model used |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) | `https://openrouter.ai/api/v1`, `~typesafe/jev-latest` |
+| `TYPESAFE_API_KEY` | [console.typesafe.ai/keys](https://console.typesafe.ai/keys) | `https://api.typesafe.ai/v1`, `jev-latest` |
+
+With both set, OpenRouter is used. A config that sets `decision.endpoint` or
+`decision.api_key_env` picks the provider itself (see
+[Settings](#settings-reqfileconfigyaml)). Without
+a key, advisory decision checks are reported as not run and never block; a
+blocking one fails the run.
+
+TypeSafe [charges](https://docs.typesafe.ai/models) $42 per billion input
+tokens, and nothing for output: a million tokens of code, about a thousand
+functions of typical size, costs around 4 cents. Answers are cached, so later
+runs only pay for the code that changed. OpenRouter sets its own price for Jev.
+
 ## Imports: `use`
 
 A use block takes a requirement defined elsewhere:
@@ -231,7 +253,7 @@ A use block takes a requirement defined elsewhere:
 ```yaml
 code:
   - { id: FAIL_FAST, use: ./std }                                                    # a folder of this repository
-  - { id: COLOCATION, use: gabsn/reqfile-colocation@d0ba113c4ca2882d8c86329049359e02ae9625b6 }  # v0.1.1
+  - { id: COLOCATION, use: gabsn/reqfile-colocation@961ed099979271c6558efd10f84c1e764997b1ca }  # v0.1.3
   - id: CONTRACTS
     use: acme/reqs@3f2a9c1e0b7d4c6a8e5f1b2d3c4a5e6f7a8b9c0d   # v1.2.0
     why: The billing core must never reach an invalid state.
@@ -309,7 +331,7 @@ findings: [test/unit/checkout/discount.test.ts]   # optional: where the checks m
 rationale: The test sits in a mirror tree while its sibling tests are colocated.
 origin: authored                             # or real:<commit>, for a case met in real use
 known: miss                                  # optional: a failure tracked without failing
-split: holdout                               # optional: kept out of tuning, reported apart
+split: holdout                               # optional: kept out of tuning (or any name), reported apart
 ```
 
 `reqfile eval` puts each case's `files/` alone in a fresh repository and runs
@@ -400,7 +422,9 @@ and by more than its noise.
   about a third of each class before looking at results, and change a check
   looking only at tuning failures: a change that raises the tuning rates and
   not the held-out ones fits its examples, not the requirement, and is
-  reverted.
+  reverted. Any other name of lowercase letters, digits and dashes, such as
+  `split: confirmation-1`, makes a split of its own, reported apart by that
+  name: a fresh set to confirm a change once the held-out one has been seen.
 - **Noise.** `reqfile eval --repeat N` runs each case N times, lists the
   cases whose outcome changes, and counts each by its most frequent outcome,
   a tie against its label; 3 to 5 runs are enough to see it. A change
@@ -424,6 +448,14 @@ and by more than its noise.
 - **No leaks.** No example's text, names or identifiers go into a command, a
   decision question or a threshold. Fix the cause a failure reveals, one
   change at a time, so each change of the rates has one explanation.
+- **Fast iterations.** `reqfile eval --format json` gives each
+  requirement's counts per split and every case with its outcome (`caught`,
+  `missed`, `flagged_elsewhere`, `not_selected`, `passed`, `false_alarm`,
+  `uncertain` or `error`), the files flagged, its `known` and its error, for
+  an agent to compare two runs. `--command-override 'FROM=>TO'` measures
+  another command for one run, such as a package's working copy instead of
+  its published runner: `--command-override
+  'bunx @g48in/reqfile-colocation@0.3.0=>node /abs/dist/main.js'`.
 - **Labels first.** Before changing a check for a failing case, reread its
   label against the `must`, above all when the check was confident: a wrong
   label is fixed in `example.yaml`, with the reason in `rationale`.
@@ -459,21 +491,27 @@ decision:                              # defaults shown
   concurrency: 16
 ```
 
+With `TYPESAFE_API_KEY` set and `OPENROUTER_API_KEY` not, the defaults are
+TypeSafe's instead: `jev-latest`, `TYPESAFE_API_KEY` and
+`https://api.typesafe.ai/v1`. A config setting `endpoint` or `api_key_env`
+turns this choice off, and its other keys default to OpenRouter's.
+
 `exclude` globs add up down the tree, so a nested config cannot re-include
 what a parent excluded; a config inside an excluded folder is ignored.
 
 Advisory decision checks follow the latest Jev by default. Set `model` to an
 exact version (such as `typesafe/jev-1.13-20260917`) to keep thresholds tied to
-the version they were chosen with; blocking decision checks require it. The
-endpoint also accepts TypeSafe's own API (`https://api.typesafe.ai/v1`, model
-`jev-latest`).
+the version they were chosen with; blocking decision checks require it.
+On TypeSafe's API, exact versions are named like `jev-1.13.0`.
 
 ## CLI
 
 ```
 reqfile check [--fast] [--changed [BASE]] [--only ID,...] [--use LOCATION]... [-v|-q]
-              [--format auto|pretty|plain|json] [--log FILE [--log-tag KEY=VALUE]...]
-reqfile eval [--only ID,...] [--use LOCATION]... [--repeat N] [-v] [--format auto|pretty|plain] [--repeat N]
+              [--command-override 'FROM=>TO']... [--format auto|pretty|plain|json]
+              [--log FILE [--log-tag KEY=VALUE]...]
+reqfile eval [--only ID,...] [--use LOCATION]... [--command-override 'FROM=>TO']...
+             [--repeat N] [-v] [--format auto|pretty|plain|json]
 reqfile example add <ID> <NAME> --expected violation|ok [--finding FILE]... [--rationale TEXT] [--holdout] <FILE>...
 reqfile explain <PATH>
 reqfile list [--kind product|code|process] [--format summary|json]
@@ -488,6 +526,11 @@ reqfile update [--dry-run]
   requirement, its `$REQFILE_ASSETS` files, its settings or the commit of its
   source changed. Unchanged files are checked against a redefined requirement,
   and only files in its scope. Commands without `files` still run.
+  BASE defaults to the nearest `base` in `.reqfile/config.yaml`, else
+  `origin/HEAD`; without it, `origin/main` or `origin/master`. In a
+  repository without a remote, it is the local `main` or `master`, else the
+  last commit, and before the first commit everything is checked. A base
+  other than `origin/HEAD` is named in a `note` line.
 - `--fast` runs only decision checks and the commands declared `fast: true`,
   for edit hooks; the summary counts the checks left for a full run. Without
   it, every check runs, so a CI running `reqfile check` never skips checks.
@@ -517,9 +560,13 @@ reqfile update [--dry-run]
   reqfile reads keys from the environment only: fill it with the secret
   manager you use.
 - `--use` adds the requirements of a location for this run (above).
+- `--command-override 'FROM=>TO'` replaces FROM by TO in the `run` of every
+  command check, for this run only, never in a Reqfile; repeatable. A FROM no
+  command contains is an error, so a typo never runs the original silently.
 - `eval` measures each requirement's checks on its labeled examples (above),
-  each case `--repeat N` times; `test` is its former name, kept as an alias
-  for one version.
+  each case `--repeat N` times; `--format json` gives the counts per split and
+  every case as data. `test` is its former name, kept as an alias for one
+  version.
 - `example add` turns files of the repository into a labeled example (above).
 - `add` writes use blocks pinned to a commit, `update` moves the pins (above).
 
@@ -550,10 +597,11 @@ Exit codes: `0` when every blocking check ran and found no blocking violation,
 check (which takes precedence). An advisory check that cannot run, such as a
 decision check without an API key in a pull request from a fork, is reported
 as an advisory error without changing the exit code: it could never have
-blocked. Command checks are always blocking. Exit 0 means the checks passed,
+blocked. A command check is blocking unless its `mode` is `advisory`. Exit 0 means the checks passed,
 not that the requirements hold: checks approximate requirements. The summary
 counts checks run, checks with nothing to check, and code units judged, so a
-run that looked at nothing shows.
+run that looked at nothing shows. A repository without any `Reqfile.yaml` is an error
+(exit 3) for `check` and `eval`, whose message says how to set reqfile up.
 
 ## Using it
 
@@ -616,8 +664,11 @@ Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 
 reqfile checks itself: `Reqfile.yaml` lists its product requirements, each a
 macro promise checked by the integration tests in `tests/`, whose names are
-its micro requirements. Decision tests call a local fake of Jev, and import
-tests local git repositories, so the suite runs offline.
+its micro requirements. The tests prove reqfile's own behavior, so they
+replace Jev with a fake server whose answers they choose, and remote
+repositories with local ones: the suite runs offline and without a key.
+`reqfile check` and `reqfile eval` always call the real Jev; `reqfile eval`
+is where its judgments are measured.
 
 ```sh
 cargo test
@@ -629,3 +680,6 @@ CI (`.github/check.sh`, run for every pull request and before every release)
 compiles the tests with `cargo test --no-run --locked` before running `cargo
 test --locked`, `reqfile check` and `reqfile eval`, so cold builds and Cargo's
 build lock cannot exhaust a check's timeout.
+
+Changes are listed in [CHANGELOG.md](CHANGELOG.md). To report a bug or
+propose a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
