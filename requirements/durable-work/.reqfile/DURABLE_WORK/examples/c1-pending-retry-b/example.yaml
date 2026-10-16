@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The worker deletes persisted acceptance before work succeeds; a transient failure loses the job on restart.

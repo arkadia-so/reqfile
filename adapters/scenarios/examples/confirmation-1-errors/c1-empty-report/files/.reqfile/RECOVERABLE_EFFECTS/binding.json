@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "partial-failure": "SignupRecovery.test_partial_state_identifies_applied_effect",
+    "recovery": "SignupRecovery.test_recovery_finishes_without_repeating_membership",
+    "repeated-recovery": "SignupRecovery.test_recovery_can_be_repeated"
+  }
+}

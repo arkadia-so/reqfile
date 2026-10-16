@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: DURABLE_WORK
+    must: "Accepted work survives process failure until it reaches an explicit terminal outcome."
+    why: "Acknowledging work transfers responsibility for its eventual outcome to the system."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: durable-work

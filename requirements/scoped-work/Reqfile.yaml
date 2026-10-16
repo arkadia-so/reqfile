@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: SCOPED_WORK
+    must: "Tasks stop with their declared owner and cannot commit late results after that owner ends."
+    why: "An obsolete asynchronous result must not mutate state that now belongs to a different lifetime."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: scoped-work

@@ -129,14 +129,36 @@ fn resolve_tag(cache: &Path, url: &str, repo: &str, tag: &str) -> Result<(String
     Ok((commit, false))
 }
 
+/// Creates the shared object store, atomically: runs started together on an
+/// empty cache (a CI runner's checks) each initialize their own and move it
+/// into place; `git init` in the same folder at once fails for all but one.
+fn create_store(cache: &Path, store: &Path) -> Result<(), String> {
+    fs::create_dir_all(cache).map_err(|e| format!("cannot create {}: {e}", cache.display()))?;
+    let staging = tempfile::Builder::new()
+        .prefix(".objects-")
+        .tempdir_in(cache)
+        .map_err(|e| format!("cannot create a folder in {}: {e}", cache.display()))?;
+    git::git(staging.path(), &["init", "--quiet", "--bare"])?;
+    match fs::rename(staging.path(), store) {
+        Ok(()) => {
+            let _moved = staging.keep();
+            Ok(())
+        }
+        // Another run placed its store first; this one is removed when dropped.
+        Err(_) if store.join("HEAD").is_file() => Ok(()),
+        // A folder left without HEAD by an interrupted run (or by versions
+        // before this one): initialize it where it is.
+        Err(_) if store.is_dir() => git::git(store, &["init", "--quiet", "--bare"]).map(|_| ()),
+        Err(e) => Err(format!("cannot place {}: {e}", store.display())),
+    }
+}
+
 /// Fetches a commit into the shared object store and writes its files to
 /// `dir`, atomically, so concurrent runs never see half of it.
 fn extract(cache: &Path, url: &str, commit: &str, dir: &Path) -> Result<(), String> {
     let store = cache.join("objects.git");
     if !store.join("HEAD").is_file() {
-        fs::create_dir_all(&store)
-            .map_err(|e| format!("cannot create {}: {e}", store.display()))?;
-        git::git(&store, &["init", "--quiet", "--bare"])?;
+        create_store(cache, &store)?;
     }
     let present = git::git(&store, &["cat-file", "-e", &format!("{commit}^{{commit}}")]).is_ok();
     if !present {

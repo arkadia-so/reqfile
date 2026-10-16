@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-2
+rationale: "Both reservations commit from the same stale snapshot, hiding excess allocation behind a lost update."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

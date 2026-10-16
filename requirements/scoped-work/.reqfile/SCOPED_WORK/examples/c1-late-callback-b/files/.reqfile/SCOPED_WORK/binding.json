@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "owner-close": "Ownership.test_close_stops_owned_task",
+    "late-completion": "Ownership.test_late_dependency_cannot_publish",
+    "failure-cleanup": "Ownership.test_failure_releases_resource_once"
+  }
+}

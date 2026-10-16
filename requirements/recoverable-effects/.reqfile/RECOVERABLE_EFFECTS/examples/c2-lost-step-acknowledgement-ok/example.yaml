@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-2
+rationale: "Recovery consults the external effect receipt when the progress acknowledgement was lost."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

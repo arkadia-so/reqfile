@@ -9,7 +9,8 @@ use std::path::Path;
 use super::workspace::{self, Workspace};
 use crate::core::paths;
 use crate::core::pins;
-use crate::core::reqfile::{self, Block, Check, GitRef, Kind, Location, Origin, Reqfile};
+use crate::core::reqfile::{self, Check, GitRef, Kind, Location, Origin, Reqfile};
+use crate::core::resolve::Effective;
 
 /// Writes the use blocks, or with `dry_run` only shows them; returns the
 /// text to print, or the errors that prevent it.
@@ -30,7 +31,7 @@ pub fn run(
         Location::Local(path) => {
             let folder = paths::normalize(&paths::join(&here, path))
                 .ok_or_else(|| vec![format!("{path} is outside the repository")])?;
-            let found = definitions_under(&workspace.reqfiles, &folder);
+            let found = definitions_under(&workspace.reqfiles, &workspace.blocks, &folder);
             (
                 found,
                 format!("{location} is {}", paths::display_dir(&folder)),
@@ -40,7 +41,8 @@ pub fn run(
         }
         Location::Git { repo, reference } => {
             let source = workspace::load_source(repo, reference)?;
-            let found = definitions_under(&source.reqfiles, "");
+            let inspected = Workspace::from_package(&source.root)?;
+            let found = definitions_under(&source.reqfiles, &inspected.blocks, "");
             let resolved = format!("{location} resolved to commit {}", source.commit);
             let comment = match reference {
                 GitRef::Tag(tag) => format!("  # {tag}"),
@@ -178,22 +180,31 @@ fn render(
 
 /// The definitions of the Reqfiles at or under `folder`: id, type, and what
 /// each check runs.
-fn definitions_under(reqfiles: &[Reqfile], folder: &str) -> Vec<Importable> {
+fn definitions_under(
+    reqfiles: &[Reqfile],
+    effective: &[Effective],
+    folder: &str,
+) -> Vec<Importable> {
     reqfiles
         .iter()
         .filter(|r| paths::contains_dir(folder, &r.dir))
-        .flat_map(|r| &r.blocks)
-        .filter(|b| matches!(b.origin, Origin::Definition { .. }))
-        .map(|b| (b.id.clone(), b.kind, describe_checks(b)))
+        .flat_map(|r| r.blocks.iter().map(move |b| (r, b)))
+        .filter(|(_, b)| matches!(b.origin, Origin::Definition { .. }))
+        .map(|(r, b)| {
+            let block = effective
+                .iter()
+                .find(|e| e.reqfile == r.path && e.id == b.id)
+                .expect("every definition is resolved");
+            (b.id.clone(), b.kind, describe_checks(&block.checks))
+        })
         .collect()
 }
 
-fn describe_checks(block: &Block) -> Vec<String> {
-    block
-        .checks
+fn describe_checks(checks: &[Check]) -> Vec<String> {
+    checks
         .iter()
-        .flat_map(|checks| &checks.list)
         .map(|check| match check {
+            Check::Adapter(a) => format!("adapter: {}{}#{}", a.location.describe(), if a.path == "." { String::new() } else { format!("/{}", a.path) }, a.check),
             Check::Command(command) => format!("command: {}", command.run),
             Check::Decision(decision) => format!(
                 "decision{}: asks Jev about each code unit its decision.yaml selects, sending that code to the configured endpoint",

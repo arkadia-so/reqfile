@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "cross-identity-read": "PrivateNotes.test_foreign_read_is_denied",
+    "cross-identity-write": "PrivateNotes.test_foreign_write_is_denied_and_preserves_state",
+    "identity-switch": "PrivateNotes.test_switch_discards_cache_and_pending_response"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "requirement": "SCOPED_WORK",
+  "split": "confirmation-1",
+  "expected_exit": 2,
+  "rationale": "The runner leaves an incomplete XML report after running the behavior suite."
+}

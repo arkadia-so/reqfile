@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "owner-close": "owner-close",
+    "late-completion": "late-completion",
+    "failure-cleanup": "failure-cleanup"
+  },
+  "timeout_seconds": 20
+}

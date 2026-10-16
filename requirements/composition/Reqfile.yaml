@@ -10,10 +10,6 @@ code:
     why: Implementation hierarchies couple every subclass to its parent's internals, and agents reach for them by default in TS and Python.
     who: Anyone changing a shared component; agents extending code.
     checks:
-      - command:
-          run: ast-grep scan --rule $REQFILE_ASSETS/rules.yml --format sarif
-          fast: true
-          files: "**/*.{ts,tsx,py}"
-          pass_files: true
-          format: sarif
-          fix_hint: Hold the collaborator behind an interface instead of inheriting from it.
+      - adapter:
+          use: ./.reqfile/COMPOSITION
+          check: inheritance

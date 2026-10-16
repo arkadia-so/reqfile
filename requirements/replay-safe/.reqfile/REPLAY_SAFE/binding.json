@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    ".reqfile/REPLAY_SAFE/examples/development-ok/files/suite.py"
+  ],
+  "scenarios": {
+    "same-operation": "test_same_operation",
+    "distinct-operations": "test_distinct_operations",
+    "retry-after-failure": "test_retry_after_failure"
+  }
+}

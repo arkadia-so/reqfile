@@ -1,0 +1,12 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: language
+checks:
+  pure-core:
+    - command:
+        run: ast-grep scan --rule $REQFILE_ASSETS/no-io-in-core.yml --format sarif
+        fast: true
+        files: "**/core/**"
+        pass_files: true
+        format: sarif
+        fix_hint: Move the I/O to the shell and pass its result into the core as data.

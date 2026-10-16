@@ -1,0 +1,28 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: language
+checks:
+  python-types:
+    - command:
+        run: ruff check --isolated --select ANN401 --output-format sarif
+        fast: true
+        files: "**/*.py"
+        pass_files: true
+        format: sarif
+        fix_hint: Replace Any with a precise type, parsed at the boundary.
+  typescript-types:
+    - command:
+        run: ast-grep scan --rule $REQFILE_ASSETS/no-any.yml --format sarif
+        fast: true
+        files: "**/*.{ts,tsx}"
+        pass_files: true
+        format: sarif
+        fix_hint: Replace any with a precise type, parsed at the boundary with Zod.
+  parsed-input:
+    - command:
+        run: ast-grep scan --rule $REQFILE_ASSETS/unparsed.yml --format sarif
+        fast: true
+        files: "**/*.{ts,tsx,py,rs}"
+        pass_files: true
+        format: sarif
+        fix_hint: Parse the decoded data with a schema (Zod, Pydantic, serde) into a precise type before using it.

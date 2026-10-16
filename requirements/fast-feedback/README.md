@@ -270,3 +270,12 @@ skip the toolchain on pull requests, whose measurement runs no command.
 package is rare here (none in 14 days but the probe's), so that scenario runs
 its checks as a command (`scripts/fast-feedback-one-file.sh`, 12.2 s on a
 runner); the job around them (setup, about 40 s) is pr-docs-only's.
+
+## Check composition
+
+The checks are named exports of [Adapter.yaml](.reqfile/FAST_FEEDBACK/Adapter.yaml).
+The requirement, command arguments, modes, assets and labeled examples retain
+their existing behavior. Consumers can select an export with an `adapter`
+check or compose it with other adapters; an explicit `checks` override still
+replaces all inherited checks. This format migration does not change the
+checker's evidence or adoption status.

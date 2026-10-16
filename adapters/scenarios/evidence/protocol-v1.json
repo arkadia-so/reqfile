@@ -1,0 +1,62 @@
+[
+  {
+    "case": "c1-duplicate-test",
+    "requirement": "CONCURRENT_TRANSITIONS",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "case": "c1-empty-report",
+    "requirement": "RECOVERABLE_EFFECTS",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "case": "c1-missing-report",
+    "requirement": "DATA_ISOLATION",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "case": "c1-missing-test",
+    "requirement": "REPLAY_SAFE",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "case": "c1-skipped-test",
+    "requirement": "DURABLE_WORK",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  },
+  {
+    "case": "c1-truncated-report",
+    "requirement": "SCOPED_WORK",
+    "expected_exit": 2,
+    "observed_exits": [
+      2,
+      2,
+      2
+    ]
+  }
+]

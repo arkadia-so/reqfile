@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: CONCURRENT_TRANSITIONS
+    must: "Competing transitions on shared state preserve its declared invariants."
+    why: "Overlapping operations must not corrupt shared state or silently lose accepted work."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: concurrent-transitions

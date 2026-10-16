@@ -1,0 +1,35 @@
+adapter: 1
+kind: language
+inputs:
+  optional: [binding, command, scenarios, runner, cwd, timeout_seconds, extra_scenarios]
+checks:
+  replay-safe:
+    - adapter:
+        use: ../scenarios
+        check: replay-safe
+        with: {runner: dart}
+  concurrent-transitions:
+    - adapter:
+        use: ../scenarios
+        check: concurrent-transitions
+        with: {runner: dart}
+  durable-work:
+    - adapter:
+        use: ../scenarios
+        check: durable-work
+        with: {runner: dart}
+  recoverable-effects:
+    - adapter:
+        use: ../scenarios
+        check: recoverable-effects
+        with: {runner: dart}
+  scoped-work:
+    - adapter:
+        use: ../scenarios
+        check: scoped-work
+        with: {runner: dart}
+  data-isolation:
+    - adapter:
+        use: ../scenarios
+        check: data-isolation
+        with: {runner: dart}

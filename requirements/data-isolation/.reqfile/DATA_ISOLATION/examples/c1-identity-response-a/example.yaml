@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The service enforces private documents and the session rejects responses from the previous identity or generation.

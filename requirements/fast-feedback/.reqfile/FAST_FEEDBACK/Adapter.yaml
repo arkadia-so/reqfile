@@ -1,0 +1,18 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: project
+checks:
+  latency:
+    - command:
+        run: $REQFILE_ASSETS/check.sh
+        fast: true
+        files: ".github/**"
+        timeout: 1800
+        fix_hint: Cover each pull-request job with a scenario, keep baselines under the cap or mark them over_cap with a todo, and make a slower scenario fast again (a baseline is raised only by hand, with the reason in the pull request).
+  ratchet:
+    - command:
+        run: $REQFILE_ASSETS/ratchet.sh
+        fast: true
+        files: ".github/**"
+        mode: advisory
+        fix_hint: Lower the baseline to the value given (a nightly ratchet can commit it itself, README.md).

@@ -1,0 +1,10 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "scenarios": {
+    "competing-transitions": "test_competing_transitions",
+    "invariant-after-contention": "test_invariant_after_contention"
+  }
+}

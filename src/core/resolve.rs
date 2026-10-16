@@ -232,12 +232,13 @@ fn resolve_block(
         None => {
             let prefix = format!("{own_assets}/");
             let examples = format!("{own_assets}/examples/");
-            if let Some(file) = asset_files
-                .iter()
-                .find(|f| f.starts_with(&prefix) && !f.starts_with(&examples))
-            {
+            if let Some(file) = asset_files.iter().find(|f| {
+                f.starts_with(&prefix)
+                    && !f.starts_with(&examples)
+                    && **f != format!("{own_assets}/binding.json")
+            }) {
                 return Err(error(format!(
-                    "requirement {} takes its checks from its definition, whose files are in its own .reqfile/{}/, so {own_assets}/ may only hold examples/; found {file}. Set `checks` here to use local files, or move the file",
+                    "requirement {} takes its checks from its definition, whose files are in its own .reqfile/{}/, so {own_assets}/ may only hold examples/ and binding.json; found {file}. Set `checks` here to use local files, or move the file",
                     block.id, block.id
                 )));
             }

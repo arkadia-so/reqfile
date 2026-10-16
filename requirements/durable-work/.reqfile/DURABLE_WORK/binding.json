@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    ".reqfile/DURABLE_WORK/examples/development-ok/files/suite.py"
+  ],
+  "scenarios": {
+    "accepted-restart": "test_accepted_restart",
+    "retryable-failure": "test_retryable_failure",
+    "terminal-outcome": "test_terminal_outcome"
+  }
+}

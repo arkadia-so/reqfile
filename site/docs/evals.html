@@ -133,12 +133,17 @@ reqfile eval --only FAIL_FAST</code></pre></div>
 </tbody></table></div>
 <p>Exit 0 means the checks passed, not that the requirements hold.</p>
         </section>
+      <section aria-labelledby="adapter-evidence">
+<h2 id="adapter-evidence">Adapter evidence</h2>
+<p>Eval executes resolved adapter leaves with their original checker assets, while project bindings and scenario code come from the isolated example. The runner does not inject fixture labels into bindings. Commands remain trusted executable code; eval is not a filesystem sandbox. Preserve independent confirmation splits when changing checkers; a format migration does not upgrade an alpha checker to a reviewed policy.</p>
+</section>
         <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
         <nav class="docs-pager" aria-label="Previous and next pages">
           <a class="prev" href="/docs/packages"><span>Previous</span>Packages</a>
           <a class="next" href="/docs/cli"><span>Next</span>CLI</a>
         </nav>
-      </main>
+
+</main>
     </div>
     <footer>
       <a class="wordmark" href="/"

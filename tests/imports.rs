@@ -3,6 +3,7 @@
 //! it for one run with `--use`, checked as if declared where used.
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use reqfile_test_support::{FakeJev, PYTHON_FUNCTIONS, Remotes, Repo, Run, remotes, repo, reqfile};
 
@@ -453,6 +454,66 @@ fn a_missing_commit_is_an_error_naming_the_source() {
 }
 
 #[test]
+fn runs_started_together_on_an_empty_cache_all_fetch_the_source() {
+    let remotes = remotes!();
+    let (_, commits) = acme(&remotes, &[("v1", &reqfile(&[("RULE", &say("ran"))]))]);
+    let repo = consumer(&remotes);
+    repo.write(
+        "Reqfile.yaml",
+        &use_block("code", "RULE", &format!("acme/reqs@{}", commits[0])),
+    );
+
+    // A CI runner's checks start together, each a reqfile run on the same
+    // empty cache; all but one used to fail creating its object store.
+    // Separate processes, spawned before any is waited for.
+    let binary = reqfile_test_support::binary!();
+    let children: Vec<_> = (0..8)
+        .map(|_| {
+            Command::new(&binary)
+                .arg("check")
+                .current_dir(repo.path())
+                .env("REQFILE_CACHE", repo.cache())
+                .env("REQFILE_GIT_BASE", remotes.base())
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env_remove("OPENROUTER_API_KEY")
+                .env_remove("TYPESAFE_API_KEY")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("start reqfile")
+        })
+        .collect();
+    let runs: Vec<_> = children
+        .into_iter()
+        .map(|c| c.wait_with_output().expect("a run"))
+        .collect();
+
+    for run in &runs {
+        let (stdout, stderr) = (
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr),
+        );
+        assert_eq!(run.status.code(), Some(1), "{stdout}{stderr}");
+        assert!(stdout.contains("RULE  ran"), "{stdout}");
+    }
+    let sources = std::fs::read_dir(repo.cache().join("sources"))
+        .expect("the sources folder")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        sources,
+        ["commits", "objects.git"].map(String::from).into(),
+        "no staging folder left"
+    );
+}
+
+#[test]
 fn every_use_block_is_explained_with_the_commit_it_is_pinned_to() {
     // The same id at two versions: the root at S1, services/api at S2.
     let jev = FakeJev::by_marker();
@@ -738,7 +799,7 @@ fn local_assets_other_than_examples_with_inherited_checks_are_an_error() {
     assert_eq!(run.code, 3, "{}", run.output());
     assert!(
         run.stdout.contains(
-            "Reqfile.yaml:3: requirement FAIL_FAST takes its checks from its definition, whose files are in its own .reqfile/FAIL_FAST/, so .reqfile/FAIL_FAST/ may only hold examples/; found .reqfile/FAIL_FAST/decision.yaml"
+            "Reqfile.yaml:3: requirement FAIL_FAST takes its checks from its definition, whose files are in its own .reqfile/FAIL_FAST/, so .reqfile/FAIL_FAST/ may only hold examples/ and binding.json; found .reqfile/FAIL_FAST/decision.yaml"
         ),
         "{}",
         run.stdout

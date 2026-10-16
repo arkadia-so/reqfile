@@ -1,0 +1,12 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: language
+checks:
+  inheritance:
+    - command:
+        run: ast-grep scan --rule $REQFILE_ASSETS/rules.yml --format sarif
+        fast: true
+        files: "**/*.{ts,tsx,py}"
+        pass_files: true
+        format: sarif
+        fix_hint: Hold the collaborator behind an interface instead of inheriting from it.

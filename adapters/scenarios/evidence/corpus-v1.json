@@ -1,0 +1,942 @@
+{
+  "exit_code": 0,
+  "requirements": [
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-inventory-contention-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-inventory-contention-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-reservation-snapshot-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-reservation-snapshot-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "CONCURRENT_TRANSITIONS",
+      "reqfile": "requirements/concurrent-transitions/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    },
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-identity-response-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-identity-response-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-organization-switch-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-organization-switch-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "DATA_ISOLATION",
+      "reqfile": "requirements/data-isolation/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    },
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-pending-retry-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-pending-retry-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-abandoned-claim-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-abandoned-claim-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "DURABLE_WORK",
+      "reqfile": "requirements/durable-work/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    },
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-partial-signup-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-partial-signup-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-lost-step-acknowledgement-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-lost-step-acknowledgement-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "RECOVERABLE_EFFECTS",
+      "reqfile": "requirements/recoverable-effects/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    },
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-receipt-boundary-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-receipt-boundary-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-receipt-retention-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-receipt-retention-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "REPLAY_SAFE",
+      "reqfile": "requirements/replay-safe/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    },
+    {
+      "cases": [
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c1-late-callback-a",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "run.py"
+          ],
+          "name": "c1-late-callback-b",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-1",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "c2-owner-name-reuse-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "c2-owner-name-reuse-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "confirmation-2",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "ok",
+          "flagged": [],
+          "name": "development-ok",
+          "outcome": "passed",
+          "outcomes": [
+            "passed",
+            "passed",
+            "passed"
+          ],
+          "split": "development",
+          "stable": true
+        },
+        {
+          "accepted": true,
+          "expected": "violation",
+          "flagged": [
+            "suite.py"
+          ],
+          "name": "development-violation",
+          "outcome": "caught",
+          "outcomes": [
+            "caught",
+            "caught",
+            "caught"
+          ],
+          "split": "development",
+          "stable": true
+        }
+      ],
+      "evidence": "asserted",
+      "failed": false,
+      "id": "SCOPED_WORK",
+      "reqfile": "requirements/scoped-work/Reqfile.yaml",
+      "splits": [
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-1",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "confirmation-2",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        },
+        {
+          "errors": 0,
+          "ok": {
+            "flagged": 0,
+            "passed": 1,
+            "total": 1,
+            "uncertain": 0
+          },
+          "split": "development",
+          "unstable": 0,
+          "violations": {
+            "caught": 1,
+            "missed": 0,
+            "not_selected": 0,
+            "total": 1,
+            "uncertain": 0
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "asserted": 6,
+    "examples": 36,
+    "failing": 0,
+    "measured": 0,
+    "requirements": 6,
+    "runs": 3,
+    "unstable": 0,
+    "without_evidence": 0
+  },
+  "corpus_tag": "reqfile-reliability-corpus-v1",
+  "checker_sha256": "1ae1945b29b0ac69fd0ba9710d13d8d8dcf41b94341c47bb7f480d756ab50770",
+  "measurement": "First confirmation measurement after implementation; three repeats in one measurement, no confirmation-driven tuning."
+}

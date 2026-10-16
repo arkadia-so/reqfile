@@ -1,0 +1,9 @@
+{
+  "command": ["dart"],
+  "scenarios": {
+    "owner-close": "owner close stops active work",
+    "late-completion": "late completion cannot commit",
+    "failure-cleanup": "failure cleans up the owned resource once",
+    "provider-dispose": "provider disposal rejects the pending result"
+  }
+}

@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-2
+rationale: "A callback checks only the reused owner name and mutates a different incarnation after its original owner ends."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

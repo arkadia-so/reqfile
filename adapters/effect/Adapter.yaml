@@ -1,0 +1,65 @@
+adapter: 1
+kind: library
+inputs:
+  optional: [binding, command, scenarios, runner, cwd, timeout_seconds, extra_scenarios]
+checks:
+  replay-safe:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement REPLAY_SAFE
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: replay-safe
+        with: {extra_scenarios: [effect-retry]}
+  concurrent-transitions:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement CONCURRENT_TRANSITIONS
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: concurrent-transitions
+        with: {extra_scenarios: [fiber-contention]}
+  durable-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DURABLE_WORK
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: durable-work
+        with: {extra_scenarios: [runtime-restart]}
+  recoverable-effects:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement RECOVERABLE_EFFECTS
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: recoverable-effects
+        with: {extra_scenarios: [interrupted-sibling]}
+  scoped-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement SCOPED_WORK
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: scoped-work
+        with: {extra_scenarios: [scope-interruption]}
+  data-isolation:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DATA_ISOLATION
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../typescript
+        check: data-isolation
+        with: {extra_scenarios: [request-context]}

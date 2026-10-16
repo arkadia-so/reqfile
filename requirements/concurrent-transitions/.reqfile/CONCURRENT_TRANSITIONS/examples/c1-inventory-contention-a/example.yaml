@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: A barrier forces two readers to overlap, and capacity is checked again under the write lock.

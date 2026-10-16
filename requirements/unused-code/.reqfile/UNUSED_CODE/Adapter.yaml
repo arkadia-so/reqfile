@@ -1,0 +1,35 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: language
+checks:
+  python-locals:
+    - command:
+        run: ruff check --isolated --select F401,F841 --output-format sarif
+        fast: true
+        files: "**/*.py"
+        pass_files: true
+        format: sarif
+        fix_hint: Delete the unused code.
+  python-definitions:
+    - command:
+        run: $REQFILE_ASSETS/python.sh   # top-level functions and classes used nowhere, as SARIF
+        fast: true
+        files: "**/*.py"
+        pass_files: true
+        format: sarif
+        fix_hint: Delete the unused function or class.
+  rust:
+    - command:
+        run: $REQFILE_ASSETS/rust.sh   # unused code in each crate containing the files, as SARIF
+        files: "**/*.rs"
+        pass_files: true
+        format: sarif
+        timeout: 600
+        fix_hint: Delete the unused code.
+  typescript:
+    - command:
+        run: $REQFILE_ASSETS/ts.sh     # knip in each package containing the files
+        files: "**/*.{ts,tsx}"
+        pass_files: true
+        timeout: 300
+        fix_hint: Delete the unused export, file or dependency.

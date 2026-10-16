@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "scenarios": {
+    "accepted-restart": "test_accepted_restart",
+    "retryable-failure": "test_retryable_failure",
+    "terminal-outcome": "test_terminal_outcome"
+  }
+}

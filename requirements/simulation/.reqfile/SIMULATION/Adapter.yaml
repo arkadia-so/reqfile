@@ -1,0 +1,10 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: project
+checks:
+  seeded-transitions:
+    - command:
+        run: $REQFILE_ASSETS/check.sh
+        fast: true
+        files: "**/core/**"
+        fix_hint: Add a simulation test that feeds seeded random events to the step function and asserts its invariants after each step.

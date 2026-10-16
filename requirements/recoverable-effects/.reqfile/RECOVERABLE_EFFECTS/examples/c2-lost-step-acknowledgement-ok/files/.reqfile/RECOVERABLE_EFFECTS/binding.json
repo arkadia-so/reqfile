@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "partial-failure": "partial-failure",
+    "recovery": "recovery",
+    "repeated-recovery": "repeated-recovery"
+  },
+  "timeout_seconds": 20
+}

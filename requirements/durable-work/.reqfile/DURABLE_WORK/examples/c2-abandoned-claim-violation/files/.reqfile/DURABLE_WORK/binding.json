@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "accepted-restart": "accepted-restart",
+    "retryable-failure": "retryable-failure",
+    "terminal-outcome": "terminal-outcome"
+  },
+  "timeout_seconds": 20
+}

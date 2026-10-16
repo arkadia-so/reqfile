@@ -10,11 +10,9 @@ code:
     why: A swallowed error is an invariant violation nobody sees.
     who: Anyone debugging production; agents relying on invariants.
     checks:
-      - command:
-          run: ruff check --isolated --select E722,BLE001,S110 --output-format sarif
-          fast: true
-          files: "**/*.py"
-          pass_files: true
-          format: sarif
-          fix_hint: Catch the specific expected error and handle it visibly, or let it propagate.
-      - decision
+      - adapter:
+          use: ./.reqfile/FAIL_FAST
+          check: python-errors
+      - adapter:
+          use: ./.reqfile/FAIL_FAST
+          check: visible-failures

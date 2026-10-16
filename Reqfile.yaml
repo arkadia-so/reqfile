@@ -34,7 +34,7 @@ product:
     who: Teams adopting shared or third-party requirements; authors publishing requirements.
     checks:
       - command:
-          run: cargo test --locked --test imports
+          run: cargo test --locked --test imports --test adapters
           violation_codes: [101]
           timeout: 900
           fix_hint: Make the failing tests in tests/imports.rs pass.
@@ -49,6 +49,10 @@ product:
           violation_codes: [101]
           timeout: 900
           fix_hint: Make the failing tests in tests/command_check.rs pass.
+      - command:
+          run: python3 -m unittest discover -s adapters/scenarios -p test_check.py
+          timeout: 120
+          fix_hint: Repair scenario evidence parsing and execution; missing or malformed reports must never pass.
 
   - id: DECISION_CHECK
     must: Code no linter can judge is checked by asking Jev a yes/no question about each unit a decision check selects.

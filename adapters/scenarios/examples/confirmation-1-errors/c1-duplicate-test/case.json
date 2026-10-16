@@ -1,0 +1,6 @@
+{
+  "requirement": "CONCURRENT_TRANSITIONS",
+  "split": "confirmation-1",
+  "expected_exit": 2,
+  "rationale": "The runner report repeats a required test name, so evidence is ambiguous."
+}

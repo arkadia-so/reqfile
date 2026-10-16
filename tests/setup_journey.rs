@@ -274,7 +274,10 @@ fn the_skill_installs_the_version_being_built() {
     for (install, expected) in [
         ("\"github:arkadia-so/reqfile\" = ", format!("\"{version}\"")),
         ("releases/download/", format!("v{version}/")),
-        ("cargo install reqfile --version ", version.to_string()),
+        (
+            "cargo install --git https://github.com/arkadia-so/reqfile --tag ",
+            format!("v{version} --locked"),
+        ),
     ] {
         let at = SKILL
             .find(install)

@@ -1,0 +1,6 @@
+# Reusable checks; the requirement and its examples remain in Reqfile.yaml.
+adapter: 1
+kind: project
+checks:
+  invariants:
+    - decision

@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-2
+rationale: "Late completion is fenced by the original owner instance, even when its name is reused."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

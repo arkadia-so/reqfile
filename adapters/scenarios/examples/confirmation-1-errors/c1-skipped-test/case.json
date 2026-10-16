@@ -1,0 +1,6 @@
+{
+  "requirement": "DURABLE_WORK",
+  "split": "confirmation-1",
+  "expected_exit": 2,
+  "rationale": "A required restart scenario is skipped, so it provides no behavioral evidence."
+}

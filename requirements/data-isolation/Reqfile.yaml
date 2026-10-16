@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: DATA_ISOLATION
+    must: "Reads, writes and identity changes preserve the project's authorization boundaries, including cached and pending data."
+    why: "Identity changes and delayed responses must not expose or mutate another principal's data."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: data-isolation

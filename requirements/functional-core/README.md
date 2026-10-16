@@ -11,3 +11,12 @@
 
 Checks: command, in [`Reqfile.yaml`](Reqfile.yaml), with their
 assets and 7 labeled examples in [`.reqfile/FUNCTIONAL_CORE/`](.reqfile/FUNCTIONAL_CORE/).
+
+## Check composition
+
+The checks are named exports of [Adapter.yaml](.reqfile/FUNCTIONAL_CORE/Adapter.yaml).
+The requirement, command arguments, modes, assets and labeled examples retain
+their existing behavior. Consumers can select an export with an `adapter`
+check or compose it with other adapters; an explicit `checks` override still
+replaces all inherited checks. This format migration does not change the
+checker's evidence or adoption status.

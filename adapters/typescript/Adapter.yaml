@@ -1,0 +1,35 @@
+adapter: 1
+kind: language
+inputs:
+  optional: [binding, command, scenarios, runner, cwd, timeout_seconds, extra_scenarios]
+checks:
+  replay-safe:
+    - adapter:
+        use: ../scenarios
+        check: replay-safe
+        with: {runner: vitest}
+  concurrent-transitions:
+    - adapter:
+        use: ../scenarios
+        check: concurrent-transitions
+        with: {runner: vitest}
+  durable-work:
+    - adapter:
+        use: ../scenarios
+        check: durable-work
+        with: {runner: vitest}
+  recoverable-effects:
+    - adapter:
+        use: ../scenarios
+        check: recoverable-effects
+        with: {runner: vitest}
+  scoped-work:
+    - adapter:
+        use: ../scenarios
+        check: scoped-work
+        with: {runner: vitest}
+  data-isolation:
+    - adapter:
+        use: ../scenarios
+        check: data-isolation
+        with: {runner: vitest}

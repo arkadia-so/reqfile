@@ -1,0 +1,12 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "competing-transitions": "competing-transitions",
+    "invariant-after-contention": "invariant-after-contention"
+  },
+  "timeout_seconds": 20
+}

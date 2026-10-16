@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The task is cancelled and its resource released, but its separately registered callback still publishes after the owner closes.

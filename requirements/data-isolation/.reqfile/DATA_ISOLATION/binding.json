@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    ".reqfile/DATA_ISOLATION/examples/development-ok/files/suite.py"
+  ],
+  "scenarios": {
+    "cross-identity-read": "test_cross_identity_read",
+    "cross-identity-write": "test_cross_identity_write",
+    "identity-switch": "test_identity_switch"
+  }
+}

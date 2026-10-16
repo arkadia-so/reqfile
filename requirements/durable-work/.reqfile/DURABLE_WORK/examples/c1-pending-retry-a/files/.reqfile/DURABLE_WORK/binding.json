@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "accepted-restart": "AcceptedJobs.test_restart_retains_accepted_job",
+    "retryable-failure": "AcceptedJobs.test_transient_failure_retains_pending_job",
+    "terminal-outcome": "AcceptedJobs.test_terminal_outcomes_are_distinguishable"
+  }
+}

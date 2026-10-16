@@ -11,3 +11,12 @@
 
 Checks: command, decision, in [`Reqfile.yaml`](Reqfile.yaml), with their
 assets and 6 labeled examples in [`.reqfile/FAIL_FAST/`](.reqfile/FAIL_FAST/).
+
+## Check composition
+
+The checks are named exports of [Adapter.yaml](.reqfile/FAIL_FAST/Adapter.yaml).
+The requirement, command arguments, modes, assets and labeled examples retain
+their existing behavior. Consumers can select an export with an `adapter`
+check or compose it with other adapters; an explicit `checks` override still
+replaces all inherited checks. This format migration does not change the
+checker's evidence or adoption status.

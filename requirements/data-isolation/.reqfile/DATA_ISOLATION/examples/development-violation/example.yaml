@@ -1,0 +1,3 @@
+expected: violation
+split: development
+rationale: "The controlled mutation changes the business invariant; the same executable scenario assertions observe both versions."

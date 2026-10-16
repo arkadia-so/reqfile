@@ -1,6 +1,6 @@
 [package]
 name = "reqfile"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.90"
 authors = ["Arkadia <contact@arkadia.so>"]
@@ -10,7 +10,7 @@ repository = "https://github.com/arkadia-so/reqfile"
 homepage = "https://reqfile.dev"
 keywords = ["requirements", "lint", "ci", "agents"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["tests/", "requirements/", ".github/", "site/", "dist-workspace.toml", "EXPORT.toml"]
+exclude = ["tests/", "requirements/", "adapters/", ".github/", "site/", "dist-workspace.toml", "EXPORT.toml"]
 
 [workspace]
 members = [".", "tests/support"]

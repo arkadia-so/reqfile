@@ -89,10 +89,11 @@ advisory  DECOMPLECT  services/sync/worker.ts:88  p=0.91  It mixes several jobs.
 <p>With <a href="https://mise.jdx.dev">mise</a>, from the prebuilt binaries (macOS and Linux):</p>
 <div class="code"><span class="code-lang">toml</span><pre><code># mise.toml
 [tools]
-"github:arkadia-so/reqfile" = "0.5"</code></pre></div>
+"github:arkadia-so/reqfile" = "0.6.0"</code></pre></div>
 <p>Or with the install script:</p>
-<div class="code"><span class="code-lang">sh</span><pre><code>curl -LsSf https://github.com/arkadia-so/reqfile/releases/latest/download/reqfile-installer.sh | sh</code></pre></div>
-<p>Or <code>cargo binstall reqfile</code>, or from source with <code>cargo install reqfile --locked</code> (Rust 1.90 or later).</p>
+<div class="code"><span class="code-lang">sh</span><pre><code>curl -LsSf https://github.com/arkadia-so/reqfile/releases/download/v0.6.0/reqfile-installer.sh | sh</code></pre></div>
+<p>Or build the release from source with Rust 1.90 or later:</p>
+<div class="code"><span class="code-lang">sh</span><pre><code>cargo install --git https://github.com/arkadia-so/reqfile --tag v0.6.0 --locked</code></pre></div>
 <p>reqfile runs on macOS and Linux; Windows is not supported. It needs <code>git</code>, <code>sh</code>, <code>tar</code> (for requirements taken from other repositories), and the tools your Reqfiles' commands call.</p>
         </section>
         <section aria-labelledby="first-reqfile">
@@ -165,7 +166,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: cargo install reqfile --locked
+      - run: cargo install --git https://github.com/arkadia-so/reqfile --tag v0.6.0 --locked
       # Also install the tools the Reqfiles' commands use (ruff, ast-grep, knip, ...).
       - run: reqfile check
         env:

@@ -1,0 +1,47 @@
+adapter: 1
+kind: language
+inputs:
+  optional: [binding, command, scenarios, runner, cwd, timeout_seconds, extra_scenarios]
+checks:
+  replay-safe:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement REPLAY_SAFE
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.
+  concurrent-transitions:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement CONCURRENT_TRANSITIONS
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.
+  durable-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DURABLE_WORK
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.
+  recoverable-effects:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement RECOVERABLE_EFFECTS
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.
+  scoped-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement SCOPED_WORK
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.
+  data-isolation:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DATA_ISOLATION
+        format: sarif
+        fast: true
+        timeout: 310
+        fix_hint: Run with Python 3.10+; bind every required scenario to an actual passing test of the project's behavior.

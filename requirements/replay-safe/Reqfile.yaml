@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: REPLAY_SAFE
+    must: "Repeated delivery of the same identified operation does not repeat its business effect, while distinct operations can each take effect."
+    why: "Retries and repeated delivery must preserve the intended business outcome."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: replay-safe

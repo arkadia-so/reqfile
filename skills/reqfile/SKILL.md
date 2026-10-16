@@ -20,17 +20,17 @@ This skill: https://reqfile.dev/SKILL.md
    tool versions, package scripts and CI. Preserve existing requirements and
    configuration. Use an existing `reqfile` installation if available.
 2. Install the CLI through the project's tool manager. With mise, add
-   `"github:arkadia-so/reqfile" = "0.5.0"` to its existing `[tools]` table and
+   `"github:arkadia-so/reqfile" = "0.6.0"` to its existing `[tools]` table and
    run `mise install`. macOS and Linux prebuilt binaries are also available:
 
    ```sh
    installer_dir=$(mktemp -d) &&
-     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.5.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
+     curl -fLsS https://github.com/arkadia-so/reqfile/releases/download/v0.6.0/reqfile-installer.sh -o "$installer_dir/install.sh" &&
      sh "$installer_dir/install.sh"
    reqfile --version
    ```
 
-   Alternatively use `cargo install reqfile --version 0.5.0 --locked` with
+   Alternatively use `cargo install --git https://github.com/arkadia-so/reqfile --tag v0.6.0 --locked` with
    Rust 1.90 or later. Reqfile also needs Git, a shell, and the tools invoked
    by this repository's checks. Respect an existing version pin. Windows is
    not supported: on Windows, stop and tell the user.
@@ -164,6 +164,42 @@ block may set `why`, `who` and `checks`, never `must`, and its own
 `.reqfile/<ID>/examples/` can hold this repository's examples of it.
 `reqfile explain <path>` shows which block applies and where its definition
 comes from.
+
+## Compose checks without duplicating requirements
+
+Keep one ID and one promise across technologies. Four responsibilities compose:
+the requirement owns the invariant; language adapters own language tooling;
+library adapters own version compatibility and relevant scenarios; the project
+binding owns real operations, fixtures and assertions. Not every check needs all
+four. Do not put framework knowledge into Reqfile's engine.
+
+An `adapter` check selects an export from a strict `Adapter.yaml`:
+
+```yaml
+checks:
+  - adapter:
+      use: ./adapters/typescript
+      check: replay-safe
+      with: { binding: .reqfile/REPLAY_SAFE/binding.json }
+```
+
+The manifest has `adapter: 1`, `kind: language|library|project`, optional
+`inputs: {required: [...], optional: [...]}`, and a `checks` mapping from export
+names to lists of command, decision or adapter checks. Local `use` paths are
+relative to their declaring manifest. Git uses require a full commit; `path`
+selects the adapter directory in that source. Each leaf retains its own assets
+and provenance. Bindings are JSON in `REQFILE_BINDING`, never shell substitutions.
+
+Use `.reqfile/<ID>/binding.json` for consumer-owned project data with inherited
+checks. Reqfile fingerprints it and eval reads it from the isolated example.
+An explicit `checks` override still replaces the entire inherited list.
+
+Reliability adapters require named executable scenarios. Missing, skipped or
+malformed evidence is an error. A pass means those scenarios ran successfully;
+review assertion quality, operation coverage and test-double fidelity separately.
+An API name, a type or a declaration alone is not behavioral evidence. Keep
+unmeasured heuristics advisory. See `adapters/README.md` in the public source for
+the migration and `adapters/scenarios/DECISIONS.md` for the scenario protocol.
 
 ## Judgment checks, when needed
 

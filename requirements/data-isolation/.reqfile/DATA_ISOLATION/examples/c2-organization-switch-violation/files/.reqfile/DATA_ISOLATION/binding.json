@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "cross-identity-read": "cross-identity-read",
+    "cross-identity-write": "cross-identity-write",
+    "identity-switch": "identity-switch"
+  },
+  "timeout_seconds": 20
+}

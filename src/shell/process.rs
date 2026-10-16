@@ -1,5 +1,6 @@
 //! Running a check's shell command with a timeout.
 
+use std::ffi::OsStr;
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
@@ -18,7 +19,7 @@ pub fn run(
     cwd: &Path,
     script: &str,
     args: &[String],
-    env: &[(&str, &Path)],
+    env: &[(&str, &OsStr)],
     merge_stderr: bool,
     timeout: Duration,
 ) -> Outcome {

@@ -1,3 +1,4 @@
+mod adapters;
 mod core;
 mod shell;
 

@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-2
+rationale: "The reservation transaction rechecks available capacity after overlapping reads."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

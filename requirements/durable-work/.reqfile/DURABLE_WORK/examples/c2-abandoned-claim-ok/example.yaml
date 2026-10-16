@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-2
+rationale: "A new worker reconstructs an abandoned claim from the persisted job."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-2
+rationale: "Archival deletes receipts while the operation identity remains valid, so replay charges again."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

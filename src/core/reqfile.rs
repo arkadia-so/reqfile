@@ -177,10 +177,12 @@ fn parse_ref(text: &str) -> Result<GitRef, String> {
 pub enum Check {
     Command(CommandCheck),
     Decision(DecisionCheck),
+    Adapter(crate::adapters::Reference),
 }
 
 #[derive(Debug, Clone)]
 pub struct CommandCheck {
+    pub context: Option<crate::adapters::Context>,
     pub run: String,
     /// Declared quick enough for `reqfile check --fast`, such as in an edit hook.
     pub fast: bool,
@@ -222,6 +224,7 @@ impl Default for Thresholds {
 
 #[derive(Debug, Clone)]
 pub struct DecisionCheck {
+    pub context: Option<crate::adapters::Context>,
     pub blocking: bool,
     pub line: usize,
 }
@@ -409,7 +412,7 @@ fn block(path: &str, kind: Kind, node: Node) -> Result<Block, ConfigError> {
     })
 }
 
-fn checks(path: &str, id: &str, checks_node: Node) -> Result<Checks, ConfigError> {
+pub(crate) fn checks(path: &str, id: &str, checks_node: Node) -> Result<Checks, ConfigError> {
     let checks_line = checks_node.line;
     let source = checks_node.clone().into_json().to_string();
     let mut checks = Vec::new();
@@ -451,12 +454,13 @@ fn is_screaming_snake_case(id: &str) -> bool {
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
-const NOT_A_CHECK: &str = "a check is either `decision` or a `command` mapping";
+const NOT_A_CHECK: &str = "a check is `decision`, a `command` mapping or an `adapter` reference";
 
 fn check(path: &str, node: Node) -> Result<Check, ConfigError> {
     let line = node.line;
     match node.value {
         Value::Str(name) if name == "decision" => Ok(Check::Decision(DecisionCheck {
+            context: None,
             blocking: false,
             line,
         })),
@@ -464,6 +468,7 @@ fn check(path: &str, node: Node) -> Result<Check, ConfigError> {
             let (key, body) = entries.remove(0);
             match key.name.as_str() {
                 "command" => command(path, body).map(Check::Command),
+                "adapter" => crate::adapters::reference(path, body).map(Check::Adapter),
                 "decision" => decision(path, line, body).map(Check::Decision),
                 other => Err(ConfigError::at(
                     path,
@@ -484,6 +489,7 @@ fn check(path: &str, node: Node) -> Result<Check, ConfigError> {
 fn decision(path: &str, line: usize, body: Node) -> Result<DecisionCheck, ConfigError> {
     if matches!(body.value, Value::Null) {
         return Ok(DecisionCheck {
+            context: None,
             blocking: false,
             line,
         });
@@ -508,7 +514,11 @@ fn decision(path: &str, line: usize, body: Node) -> Result<DecisionCheck, Config
             }
         }
     };
-    Ok(DecisionCheck { blocking, line })
+    Ok(DecisionCheck {
+        context: None,
+        blocking,
+        line,
+    })
 }
 
 fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
@@ -661,6 +671,7 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
         }
     };
     Ok(CommandCheck {
+        context: None,
         run,
         fast,
         fix_hint,
@@ -672,4 +683,14 @@ fn command(path: &str, body: Node) -> Result<CommandCheck, ConfigError> {
         thresholds,
         blocking,
     })
+}
+
+impl Check {
+    pub fn context(&self) -> Option<&crate::adapters::Context> {
+        match self {
+            Self::Command(c) => c.context.as_ref(),
+            Self::Decision(c) => c.context.as_ref(),
+            Self::Adapter(_) => None,
+        }
+    }
 }

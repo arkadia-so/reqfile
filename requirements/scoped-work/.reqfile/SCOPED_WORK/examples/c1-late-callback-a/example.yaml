@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: Closing the owner cancels its task, releases its resource, and rejects a later uncancellable dependency callback.

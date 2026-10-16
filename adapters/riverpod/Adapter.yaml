@@ -1,0 +1,65 @@
+adapter: 1
+kind: library
+inputs:
+  optional: [binding, command, scenarios, runner, cwd, timeout_seconds, extra_scenarios]
+checks:
+  replay-safe:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement REPLAY_SAFE
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: replay-safe
+        with: {extra_scenarios: [provider-recreation]}
+  concurrent-transitions:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement CONCURRENT_TRANSITIONS
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: concurrent-transitions
+        with: {extra_scenarios: [provider-contention]}
+  durable-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DURABLE_WORK
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: durable-work
+        with: {extra_scenarios: [container-restart]}
+  recoverable-effects:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement RECOVERABLE_EFFECTS
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: recoverable-effects
+        with: {extra_scenarios: [disposed-mutation]}
+  scoped-work:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement SCOPED_WORK
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: scoped-work
+        with: {extra_scenarios: [provider-dispose]}
+  data-isolation:
+    - command:
+        run: python3 "$REQFILE_ASSETS/check.py" --requirement DATA_ISOLATION
+        fast: true
+        timeout: 35
+        fix_hint: Install the supported library major and bind scenarios using Python 3.10+ and the project's real test runner.
+    - adapter:
+        use: ../dart
+        check: data-isolation
+        with: {extra_scenarios: [provider-identity]}

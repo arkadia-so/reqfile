@@ -77,7 +77,18 @@
 <tr><td><code>mode</code></td><td>no</td><td><code>blocking</code> (default), or <code>advisory</code>: violations are reported without failing the run, and a failure to run is an advisory error</td></tr>
 </tbody></table></div>
 <p>A command without <code>files</code> always runs. With <code>pass_files</code>, the files are appended at the end of the whole command, so a pipeline such as <code>tool "$@" | filter</code> receives nothing; put pipelines in a script.</p>
-<p>Commands reach the files of their requirement through <code>$REQFILE_ASSETS</code>, the absolute path of its <code>.reqfile/&lt;ID&gt;/</code> folder, as in <code>run: $REQFILE_ASSETS/check.sh</code>. <code>$REQFILE</code> is the reqfile executable running the check, for commands that inspect the requirements themselves, such as <code>$REQFILE list --format json</code>.</p>
+<p>Commands reach the files of their requirement through <code>$REQFILE_ASSETS</code>, the absolute path of its <code>.reqfile/&lt;ID&gt;/</code> folder (or the declaring adapter directory for an adapter leaf), as in <code>run: $REQFILE_ASSETS/check.sh</code>. <code>$REQFILE</code> is the reqfile executable running the check, for commands that inspect the requirements themselves, such as <code>$REQFILE list --format json</code>.</p>
+        </section>
+        <section aria-labelledby="adapters">
+          <h2 id="adapters"><a href="#adapters">Composable adapters</a></h2>
+<p>A requirement owns one invariant. Language adapters own language tooling; library adapters own compatibility and relevant scenarios; project bindings supply real operations and assertions. The four roles compose without duplicating a requirement for every stack. Commands and decisions remain the execution leaves.</p>
+<div class="code"><span class="code-lang">Reqfile.yaml check</span><pre><code>- adapter:
+    use: ./adapters/typescript
+    check: replay-safe
+    with: { binding: .reqfile/REPLAY_SAFE/binding.json }</code></pre></div>
+<p>The selected directory contains <code>Adapter.yaml</code>: <code>adapter: 1</code>, <code>kind: language|library|project</code>, optional <code>inputs: {required: [...], optional: [...]}</code>, and <code>checks</code>, a mapping from export names to check lists. An export may compose other adapters. Paths resolve from the declaring manifest; a pinned Git <code>use</code> may add <code>path</code> to select its directory. Cycles, unknown inputs or exports, missing required inputs and unsupported versions are errors.</p>
+<p>Each leaf receives its own asset directory in <code>REQFILE_ASSETS</code> and structured JSON inputs in <code>REQFILE_BINDING</code>. Values are never interpolated into command text. <code>reqfile explain</code> retains check provenance. Changing a transitive adapter or the conventional project <code>.reqfile/&lt;ID&gt;/binding.json</code> invalidates changed selection.</p>
+<p>Reliability adapters execute named scenarios through project bindings. They reject missing, skipped, duplicate or malformed evidence. Passing says those scenarios succeeded, not that their assertions or production fidelity were proved. Read the <a href="https://github.com/arkadia-so/reqfile/tree/main/adapters">adapter contracts and runnable examples</a> before adoption.</p>
         </section>
         <section aria-labelledby="formats">
           <h2 id="formats"><a href="#formats">Output formats</a></h2>

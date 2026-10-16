@@ -1,0 +1,10 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "competing-transitions": "Reservations.test_conflicting_outcomes",
+    "invariant-after-contention": "Reservations.test_capacity_survives_contention"
+  }
+}

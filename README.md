@@ -10,6 +10,12 @@ decision model returning calibrated probabilities, when it needs judgment
 (`decision`). A requirement written once can be taken by reference in other
 folders and repositories (`use`).
 
+Checks can also be composed through versioned adapter manifests. The four roles
+are **requirement → language adapter → library adapter → project binding**: one
+promise, reusable tooling, library semantics, and the project's actual scenarios.
+They are optional compositions, not four mandatory engines. See
+[composable checks](adapters/README.md) for the format, migration and evidence limits.
+
 ```
 $ reqfile check
 FAIL_FAST  services/api/handler.py:42  Do not use bare `except` (E722)
@@ -36,14 +42,19 @@ With [mise](https://mise.jdx.dev), from the prebuilt binaries (macOS and Linux):
 ```toml
 # mise.toml
 [tools]
-"github:arkadia-so/reqfile" = "0.5"
+"github:arkadia-so/reqfile" = "0.6.0"
 ```
 
-Or with the install script, `cargo binstall reqfile`, or from source with
-`cargo install reqfile --locked` (Rust 1.90 or later):
+Or with the install script:
 
 ```sh
-curl -LsSf https://github.com/arkadia-so/reqfile/releases/latest/download/reqfile-installer.sh | sh
+curl -LsSf https://github.com/arkadia-so/reqfile/releases/download/v0.6.0/reqfile-installer.sh | sh
+```
+
+Or build the release from source with Rust 1.90 or later:
+
+```sh
+cargo install --git https://github.com/arkadia-so/reqfile --tag v0.6.0 --locked
 ```
 
 reqfile runs on macOS and Linux; Windows is not supported. It needs `git`,
@@ -288,10 +299,12 @@ format as a local requirement, nothing more.
   Reqfile, with its globs relative to that folder, and the settings of that
   folder in the repository being checked. A source's configs are only used to
   discover its definitions.
-- **`$REQFILE_ASSETS`** is one `.reqfile/<ID>/` folder, never a merge: the
-  definition's for inherited checks, the use block's own for checks it sets.
+- **`$REQFILE_ASSETS`** is per check, never a merge. Inline checks use the
+  definition's `.reqfile/<ID>/` for inherited checks, the use block's own for
+  checks it sets. Adapter leaves use the directory of their `Adapter.yaml`.
   With inherited checks, the use block's own `.reqfile/<ID>/` may only hold
-  `examples/`, where you add your own examples of a shared requirement.
+  `examples/`, where you add your own examples of a shared requirement, and
+  `binding.json`, the project data consumed by a shared checker.
 
 `reqfile add <location> [IDS]` writes the use blocks into the Reqfile of the
 current folder, under their sections, a repository pinned to the commit its
@@ -618,7 +631,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: cargo install reqfile --locked
+      - run: cargo install --git https://github.com/arkadia-so/reqfile --tag v0.6.0 --locked
       # Also install the tools the Reqfiles' commands use (ruff, ast-grep, knip, ...).
       - run: reqfile check
         env:

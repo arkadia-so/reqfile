@@ -10,4 +10,6 @@ code:
     why: Invariants are the oracle for simulation tests and the specs for future proofs; unasserted, they are only hopes.
     who: Simulation tests; anyone debugging.
     checks:
-      - decision
+      - adapter:
+          use: ./.reqfile/CONTRACTS
+          check: invariants

@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    ".reqfile/SCOPED_WORK/examples/development-ok/files/suite.py"
+  ],
+  "scenarios": {
+    "owner-close": "test_owner_close",
+    "late-completion": "test_late_completion",
+    "failure-cleanup": "test_failure_cleanup"
+  }
+}

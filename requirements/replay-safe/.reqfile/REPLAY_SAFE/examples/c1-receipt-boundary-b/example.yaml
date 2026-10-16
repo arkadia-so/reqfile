@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The ledger only records application after acknowledgement, so retrying a lost acknowledgement charges the order again.

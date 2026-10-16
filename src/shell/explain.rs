@@ -53,6 +53,14 @@ pub fn run(cwd: &Path, path: &Path) -> Result<String, Vec<String>> {
                 "    checks: set in this block\n"
             };
         }
+        for check in &block.checks {
+            if let Some(context) = check.context() {
+                out += &format!("    adapter: {}\n", context.origins.join(" -> "));
+                if !context.binding.is_empty() {
+                    out += &format!("      binding: {}\n", serde_json::json!(context.binding));
+                }
+            }
+        }
     }
     Ok(out)
 }

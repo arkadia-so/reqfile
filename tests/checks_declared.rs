@@ -45,22 +45,22 @@ fn a_requirement_without_checks_fails() {
 }
 
 #[test]
-fn a_check_must_be_a_command_or_a_decision() {
+fn a_check_must_be_a_command_decision_or_adapter() {
     assert_config_error(
         "- lint",
-        "Reqfile.yaml:8: unknown check `lint`; a check is either `decision` or a `command` mapping",
+        "Reqfile.yaml:8: unknown check `lint`; a check is `decision`, a `command` mapping or an `adapter` reference",
     );
     assert_config_error(
         "- script:\n    run: x",
-        "Reqfile.yaml:8: unknown check `script`; a check is either `decision` or a `command` mapping",
+        "Reqfile.yaml:8: unknown check `script`; a check is `decision`, a `command` mapping or an `adapter` reference",
     );
     assert_config_error(
         "- 42",
-        "Reqfile.yaml:8: a check is either `decision` or a `command` mapping",
+        "Reqfile.yaml:8: a check is `decision`, a `command` mapping or an `adapter` reference",
     );
     assert_config_error(
         "- command:\n    run: \"true\"\n    fix_hint: x\n  decision:",
-        "Reqfile.yaml:8: a check is either `decision` or a `command` mapping",
+        "Reqfile.yaml:8: a check is `decision`, a `command` mapping or an `adapter` reference",
     );
 }
 

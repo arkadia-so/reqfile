@@ -11,3 +11,12 @@
 
 Checks: decision, in [`Reqfile.yaml`](Reqfile.yaml), with their
 assets and 5 labeled examples in [`.reqfile/DECOMPLECT/`](.reqfile/DECOMPLECT/).
+
+## Check composition
+
+The checks are named exports of [Adapter.yaml](.reqfile/DECOMPLECT/Adapter.yaml).
+The requirement, command arguments, modes, assets and labeled examples retain
+their existing behavior. Consumers can select an export with an `adapter`
+check or compose it with other adapters; an explicit `checks` override still
+replaces all inherited checks. This format migration does not change the
+checker's evidence or adoption status.

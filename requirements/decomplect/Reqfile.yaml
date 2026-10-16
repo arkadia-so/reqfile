@@ -10,4 +10,6 @@ code:
     why: Braided concerns make every change touch unrelated logic and are the main source of agent-introduced bugs.
     who: Every future agent or human modifying the code.
     checks:
-      - decision
+      - adapter:
+          use: ./.reqfile/DECOMPLECT
+          check: independent-concerns

@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-2
+rationale: "The restarted worker only looks at ready jobs, stranding an accepted job whose owner crashed after claiming it."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

@@ -83,7 +83,7 @@
 <li><strong>Types.</strong> Only <code>code</code> and <code>process</code> requirements can be taken: a <code>product</code> requirement describes its own repository's product. The section of the use block must match its definition's.</li>
 <li><strong>Local fields.</strong> A use block takes <code>must</code>, <code>ref</code> and its type from its definition. It may set <code>why</code> and <code>who</code>, and <code>checks</code>, which then replace the definition's checks entirely. Setting <code>must</code> is an error.</li>
 <li><strong>Where checks run.</strong> The checks of a use block run in the folder of its Reqfile, with its globs relative to that folder, and the settings of that folder in the repository being checked.</li>
-<li><strong><code>$REQFILE_ASSETS</code></strong> is one <code>.reqfile/&lt;ID&gt;/</code> folder, never a merge: the definition's for inherited checks, the use block's own for checks it sets. With inherited checks, the use block's own <code>.reqfile/&lt;ID&gt;/</code> may only hold <code>examples/</code>, where you add your own examples of a shared requirement.</li>
+<li><strong><code>$REQFILE_ASSETS</code></strong> is per check, never a merge: inline checks use the definition's <code>.reqfile/&lt;ID&gt;/</code> for inherited checks, or the use block's own for checks it sets. Adapter leaves use their manifest directory. With inherited checks, local assets may hold <code>examples/</code> and the consumer-owned <code>binding.json</code>.</li>
 </ul>
         </section>
         <section aria-labelledby="try">
@@ -102,14 +102,20 @@ reqfile update [--dry-run]</code></pre></div>
         <section aria-labelledby="publish">
           <h2 id="publish"><a href="#publish">Publish a package</a></h2>
 <p>Put a <code>Reqfile.yaml</code> at the root of a repository with <code>code</code> or <code>process</code> definitions, their checks and their examples under <code>.reqfile/&lt;ID&gt;/</code>, and tag releases <code>vX.Y.Z</code>. A checker the commands call is fetched by its ecosystem's runner at an exact version. Examples double as documentation, and <code>reqfile eval</code> shows users how well the checks work before they adopt them. See <a href="https://github.com/gabsn/reqfile-colocation">gabsn/reqfile-colocation</a> for a working package.</p>
-<p>Use blocks need reqfile 0.2 or later, and commit pins 0.3.</p>
+<p>Use blocks need reqfile 0.2 or later, commit pins 0.3, and adapters 0.6. Nested adapter dependency pins are updated explicitly by their author; they are not rewritten by a consumer's <code>reqfile update</code>.</p>
         </section>
+      <section aria-labelledby="adapter-composition">
+<h2 id="adapter-composition">Compose checks and bind a project</h2>
+<p>A requirement definition remains unique across languages and libraries. Its checks may select named exports from <code>Adapter.yaml</code> manifests; each expanded leaf keeps its source and asset directory. Inline command and decision checks remain supported. An explicit use-block <code>checks</code> still replaces every inherited check.</p>
+<p>A consumer may keep <code>examples/</code> and <code>binding.json</code> under its local <code>.reqfile/&lt;ID&gt;/</code> with inherited checks. The latter is project data for the checker, fingerprinted independently of imported assets. Eval reads it from each isolated fixture. See <a href="/docs/checks#adapters">adapter composition</a>.</p>
+</section>
         <p class="docs-edit">Something missing or wrong? <a href="https://github.com/arkadia-so/reqfile/issues">Open an issue ↗</a> · Agents: <a href="/SKILL.md">read the skill</a>.</p>
         <nav class="docs-pager" aria-label="Previous and next pages">
           <a class="prev" href="/docs/checks"><span>Previous</span>Checks</a>
           <a class="next" href="/docs/evals"><span>Next</span>Evals</a>
         </nav>
-      </main>
+
+</main>
     </div>
     <footer>
       <a class="wordmark" href="/"

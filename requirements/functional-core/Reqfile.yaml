@@ -10,10 +10,6 @@ code:
     why: Event ordering is where state bugs hide; a pure core is fast to test without mocks, deterministic to simulate, and the only part realistically provable later. Imposing it on every state change would be ceremony.
     who: Test authors; anyone debugging state.
     checks:
-      - command:
-          run: ast-grep scan --rule $REQFILE_ASSETS/no-io-in-core.yml --format sarif
-          fast: true
-          files: "**/core/**"
-          pass_files: true
-          format: sarif
-          fix_hint: Move the I/O to the shell and pass its result into the core as data.
+      - adapter:
+          use: ./.reqfile/FUNCTIONAL_CORE
+          check: pure-core

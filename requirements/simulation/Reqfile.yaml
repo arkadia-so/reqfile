@@ -10,8 +10,6 @@ code:
     why: It explores event orderings nobody writes by hand, and every failure is reproducible from its seed.
     who: Anyone changing state logic.
     checks:
-      - command:
-          run: $REQFILE_ASSETS/check.sh
-          fast: true
-          files: "**/core/**"
-          fix_hint: Add a simulation test that feeds seeded random events to the step function and asserts its invariants after each step.
+      - adapter:
+          use: ./.reqfile/SIMULATION
+          check: seeded-transitions

@@ -1,0 +1,6 @@
+{
+  "name": "reqfile-effect-scoped-work-example",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "effect": "4.0.1", "vitest": "5.0.3" }
+}

@@ -1,0 +1,9 @@
+{
+  "command": ["npx", "--no-install", "vitest"],
+  "scenarios": {
+    "owner-close": "owner close interrupts active work",
+    "late-completion": "late completion cannot commit",
+    "failure-cleanup": "failure releases the acquired resource once",
+    "scope-interruption": "Effect scope interruption reaches the promise boundary"
+  }
+}

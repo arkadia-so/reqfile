@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "run.py"
+  ],
+  "scenarios": {
+    "same-operation": "Deliveries.test_redelivery_keeps_one_entry",
+    "distinct-operations": "Deliveries.test_distinct_orders_keep_distinct_entries",
+    "retry-after-failure": "Deliveries.test_lost_acknowledgement_does_not_charge_twice"
+  }
+}

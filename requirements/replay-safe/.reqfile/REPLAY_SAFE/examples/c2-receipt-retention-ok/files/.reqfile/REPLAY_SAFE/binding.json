@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "runner": "junit",
+  "scenarios": {
+    "same-operation": "same-operation",
+    "distinct-operations": "distinct-operations",
+    "retry-after-failure": "retry-after-failure"
+  },
+  "timeout_seconds": 20
+}

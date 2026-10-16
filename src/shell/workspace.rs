@@ -106,13 +106,39 @@ impl Workspace {
         Self::from_files(root.clone(), listed, Files::Worktree(root), trying)
     }
 
+    /// Inspects a fetched package without requiring a .git directory and
+    /// without executing its checks. Used to preview resolved adapter commands.
+    pub fn from_package(root: &Path) -> Result<Self, Vec<String>> {
+        let listed = walk(root)
+            .map_err(|e| vec![e])?
+            .into_iter()
+            .map(|(relative, _)| relative)
+            .collect();
+        Self::from_files(
+            root.to_path_buf(),
+            listed,
+            Files::Worktree(root.to_path_buf()),
+            None,
+        )
+    }
+
     /// Loads the repository at `root` as it was at `commit`.
     pub fn at_commit(root: &Path, commit: &str) -> Result<Self, Vec<String>> {
         let listed = git::commit_files(root, commit).map_err(|e| vec![e])?;
+        let adapter_dirs: Vec<&str> = listed
+            .iter()
+            .filter(|p| paths::file_name(p) == crate::adapters::FILE_NAME)
+            .map(|p| paths::parent(p))
+            .collect();
         let needed: Vec<&str> = listed
             .iter()
             .map(String::as_str)
-            .filter(|p| read_ahead(p))
+            .filter(|p| {
+                read_ahead(p)
+                    || adapter_dirs
+                        .iter()
+                        .any(|dir| paths::relative_to(dir, p).is_some())
+            })
             .collect();
         let contents = git::read_at(root, commit, &needed).map_err(|e| vec![e])?;
         Self::from_files(root.to_path_buf(), listed, Files::Commit(contents), None)
@@ -181,8 +207,15 @@ impl Workspace {
         if !errors.is_empty() {
             return Err(errors);
         }
-        let blocks = resolve::resolve(&discovered.reqfiles, &sources, &discovered.asset_files)
+        let mut blocks = resolve::resolve(&discovered.reqfiles, &sources, &discovered.asset_files)
             .map_err(|errors| errors.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+        crate::adapters::expand(
+            &mut blocks,
+            &listed,
+            &|path| files.read(path),
+            &sources,
+            &|repo, pin| sources::fetch(repo, pin).map(|f| f.dir),
+        )?;
         Ok(Self {
             root,
             settings: discovered.settings,
@@ -216,6 +249,18 @@ impl Workspace {
         }
     }
 
+    /// An adapter leaf owns its assets; inline checks keep the requirement's.
+    pub fn check_assets_path(
+        &self,
+        block: &Effective,
+        context: Option<&crate::adapters::Context>,
+    ) -> PathBuf {
+        match context.map(|c| &c.assets).unwrap_or(&block.assets) {
+            Assets::Repo(dir) => self.root.join(dir),
+            Assets::External(dir) => dir.clone(),
+        }
+    }
+
     /// Identifies block `index` with its settings and the content of its
     /// requirement files, examples left out since checks never read them.
     pub fn fingerprint(&self, index: usize) -> Result<String, String> {
@@ -235,7 +280,7 @@ impl Workspace {
                 }
             }
             Assets::External(dir) => {
-                for (relative, path) in walk(dir)? {
+                for (relative, path) in if dir.is_dir() { walk(dir)? } else { Vec::new() } {
                     if relative.starts_with("examples/") {
                         continue;
                     }
@@ -244,6 +289,21 @@ impl Workspace {
                         .map_err(|e| format!("{}: cannot read: {e}", path.display()))?;
                     hasher.update(Sha256::digest(content));
                 }
+            }
+        }
+        // A project binding belongs to the adopting block, even when its
+        // executable checks and their assets come from another repository.
+        let binding = format!(
+            "{}/binding.json",
+            resolve::assets_dir(&block.dir, &block.id)
+        );
+        if self.asset_files.contains(&binding) {
+            hasher.update(b"project-binding\0");
+            hasher.update(self.files.read(&binding)?);
+        }
+        for check in &block.checks {
+            if let Some(context) = check.context() {
+                hasher.update(context.fingerprint.as_bytes());
             }
         }
         let assets: String = hasher.finalize()[..8]

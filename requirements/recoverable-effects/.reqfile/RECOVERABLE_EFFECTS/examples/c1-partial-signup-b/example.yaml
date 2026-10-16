@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The journal is updated only after the entire operation, hiding partial membership creation and repeating it during recovery.

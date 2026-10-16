@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "suite.py"
+  ],
+  "scenarios": {
+    "partial-failure": "test_partial_failure",
+    "recovery": "test_recovery",
+    "repeated-recovery": "test_repeated_recovery"
+  }
+}

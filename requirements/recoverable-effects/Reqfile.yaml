@@ -1,0 +1,9 @@
+reqfile: 1
+code:
+  - id: RECOVERABLE_EFFECTS
+    must: "When an operation partially applies several effects, the partial outcome is observable and can be recovered without losing or repeating its intended business effects."
+    why: "Partial success must remain distinguishable from total failure so recovery can be safe."
+    checks:
+      - adapter:
+          use: ../../adapters/scenarios
+          check: recoverable-effects

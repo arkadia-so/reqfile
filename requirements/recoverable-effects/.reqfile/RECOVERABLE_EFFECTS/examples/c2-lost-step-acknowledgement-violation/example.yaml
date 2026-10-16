@@ -1,0 +1,4 @@
+expected: violation
+split: confirmation-2
+rationale: "Recovery trusts only the stale coordinator stage and repeats an already committed reservation."
+origin: Independent confirmation author; semantic boundary case derived only from the requirement and scenario decisions.

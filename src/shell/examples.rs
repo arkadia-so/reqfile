@@ -185,6 +185,16 @@ fn run_case(workspace: &Workspace, block: &Effective, case: &Path) -> Result<Rep
     let mut in_case = block.clone();
     in_case.dir = String::new();
     in_case.assets = Assets::External(workspace.assets_path(block));
+    for check in &mut in_case.checks {
+        let context = match check {
+            Check::Command(c) => &mut c.context,
+            Check::Decision(c) => &mut c.context,
+            Check::Adapter(_) => unreachable!("adapters are expanded while loading"),
+        };
+        if let Some(context) = context {
+            context.assets = Assets::External(workspace.check_assets_path(block, Some(context)));
+        }
+    }
     let settings = Settings::with_decision(&workspace.settings.decision(&block.dir));
     let root = repo
         .path()

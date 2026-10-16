@@ -1,0 +1,4 @@
+expected: ok
+split: confirmation-1
+origin: Independent confirmation-1 corpus authored from the requirement and scenario contract only.
+rationale: The journal identifies each committed effect so recovery can finish forward without repeating membership creation.

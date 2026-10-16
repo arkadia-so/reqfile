@@ -74,6 +74,7 @@ struct DecisionJob<'w> {
     spec: DecisionSpec,
     blocking: bool,
     units: Vec<Unit>,
+    origins: Vec<String>,
 }
 
 pub fn run(cwd: &Path, options: &Options) -> Report {
@@ -298,6 +299,7 @@ fn plan<'w>(
                         report.requirements[requirement].nothing_to_check += 1;
                     }
                 },
+                Check::Adapter(_) => unreachable!("adapters are expanded while loading"),
                 Check::Decision(check) => {
                     let spec = spec
                         .take()
@@ -316,6 +318,11 @@ fn plan<'w>(
                             spec,
                             blocking: check.blocking,
                             units,
+                            origins: check
+                                .context
+                                .as_ref()
+                                .map(|c| c.origins.clone())
+                                .unwrap_or_default(),
                         }),
                         Err(message) => {
                             report.checks_run += 1;
@@ -347,10 +354,20 @@ fn run_commands(
     let executable = std::env::current_exe().ok();
     let outcomes = pool::map(commands, parallelism, |job| {
         let started = std::time::Instant::now();
-        let assets = workspace.assets_path(job.block);
-        let mut env: Vec<(&str, &Path)> = vec![("REQFILE_ASSETS", &assets)];
+        let assets = workspace.check_assets_path(job.block, job.check.context.as_ref());
+        let binding = job
+            .check
+            .context
+            .as_ref()
+            .map(|c| json!(c.binding))
+            .unwrap_or_else(|| json!({}))
+            .to_string();
+        let mut env: Vec<(&str, &std::ffi::OsStr)> = vec![
+            ("REQFILE_ASSETS", assets.as_os_str()),
+            ("REQFILE_BINDING", std::ffi::OsStr::new(&binding)),
+        ];
         if let Some(executable) = &executable {
-            env.push(("REQFILE", executable));
+            env.push(("REQFILE", executable.as_os_str()));
         }
         let outcome = process::run(
             &workspace.root.join(&job.block.dir),
@@ -507,7 +524,7 @@ fn load_specs(
         let block = &workspace.blocks[index];
         let Some(check) = block.checks.iter().find_map(|c| match c {
             Check::Decision(d) => Some(d),
-            Check::Command(_) => None,
+            Check::Command(_) | Check::Adapter(_) => None,
         }) else {
             specs.push(None);
             continue;
@@ -529,8 +546,15 @@ fn load_specs(
             specs.push(None);
             continue;
         }
-        let path = workspace.assets_path(block).join("decision.yaml");
-        let shown = match &block.assets {
+        let path = workspace
+            .check_assets_path(block, check.context.as_ref())
+            .join("decision.yaml");
+        let shown = match check
+            .context
+            .as_ref()
+            .map(|c| &c.assets)
+            .unwrap_or(&block.assets)
+        {
             Assets::Repo(dir) => paths::join(dir, "decision.yaml"),
             Assets::External(_) => path.to_string_lossy().into_owned(),
         };
@@ -607,6 +631,7 @@ fn changes(
     let runs = |check: &Check| match check {
         Check::Command(command) => !options.fast || command.fast,
         Check::Decision(_) => true,
+        Check::Adapter(_) => unreachable!("adapters are expanded while loading"),
     };
     let mut changes = Changes {
         by_base: BTreeMap::new(),
@@ -645,7 +670,14 @@ fn changes(
                 paths::file_name(p) == crate::core::reqfile::FILE_NAME
                     || p.split('/').any(|part| part == ".reqfile")
             });
-            let requirements = if !requirements_changed && workspace.sources.is_empty() {
+            let requirements = if !requirements_changed
+                && workspace.sources.is_empty()
+                && !workspace
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.checks)
+                    .any(|c| c.context().is_some())
+            {
                 Requirements::Unchanged
             } else {
                 match Workspace::at_commit(&workspace.root, &merge_base) {
@@ -750,7 +782,15 @@ fn provenance(block: &Effective) -> (Option<String>, Option<String>) {
 }
 
 fn command_finding(job: &CommandJob, violation: CommandViolation) -> Finding {
-    let (block, source) = provenance(job.block);
+    let (mut block, mut source) = provenance(job.block);
+    if let Some(context) = &job.check.context {
+        block = Some(job.block.block());
+        source = Some(format!(
+            "{}{}",
+            source.map(|s| format!("{s} -> ")).unwrap_or_default(),
+            context.origins.join(" -> ")
+        ));
+    }
     Finding {
         requirement: job.block.id.clone(),
         kind: if violation.uncertain {
@@ -793,7 +833,15 @@ fn judge_decisions(
         })
     };
     let id = &job.block.id;
-    let (block, source) = provenance(job.block);
+    let (mut block, mut source) = provenance(job.block);
+    if !job.origins.is_empty() {
+        block = Some(job.block.block());
+        source = Some(format!(
+            "{}{}",
+            source.map(|s| format!("{s} -> ")).unwrap_or_default(),
+            job.origins.join(" -> ")
+        ));
+    }
     let mut failures = Vec::new();
     for (unit, answer) in job.units.iter().zip(answers) {
         let judged = match answer {

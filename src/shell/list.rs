@@ -86,7 +86,7 @@ fn render_json(listed: &[&Effective]) -> String {
                     "checks_inherited": i.checks_inherited,
                 })
             });
-            json!({
+            let mut row = json!({
                 "reqfile": block.reqfile,
                 "line": block.line,
                 "id": block.id,
@@ -97,7 +97,17 @@ fn render_json(listed: &[&Effective]) -> String {
                 "ref": block.reference,
                 "checks": check_types(block),
                 "imported": imported,
-            })
+            });
+            let adapters: Vec<_> = block
+                .checks
+                .iter()
+                .filter_map(|c| c.context())
+                .map(|c| json!({ "origins": c.origins, "binding": c.binding }))
+                .collect();
+            if !adapters.is_empty() {
+                row["adapters"] = json!(adapters);
+            }
+            row
         })
         .collect();
     serde_json::to_string_pretty(&json!({ "requirements": requirements }))
@@ -110,6 +120,7 @@ fn check_types(block: &Effective) -> Vec<&'static str> {
     let mut types: Vec<&str> = Vec::new();
     for check in &block.checks {
         let name = match check {
+            Check::Adapter(_) => unreachable!("adapters are expanded while loading"),
             Check::Command(_) => "command",
             Check::Decision(d) if d.blocking => "decision (blocking)",
             Check::Decision(_) => "decision",

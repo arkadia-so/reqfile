@@ -4,6 +4,13 @@ Notable changes to reqfile, newest first. Versions follow
 [semantic versioning](https://semver.org); before 1.0, a minor version may
 change the Reqfile format or the CLI, and says so here.
 
+## Unreleased
+
+- Runs started together on an empty cache (the checks of a fresh CI runner)
+  all fetch their `owner/repo@commit` sources: the shared object store is now
+  created atomically. Before, all but one failed with `cannot fetch ...: git
+  init --quiet --bare failed`.
+
 ## 0.5.0 (2026-10-09)
 
 - FAST_FEEDBACK, the first reviewed requirement package shipped in
